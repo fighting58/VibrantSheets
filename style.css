@@ -1,0 +1,445 @@
+:root {
+    --bg-color: #0f172a;
+    --surface-color: #1e293b;
+    --border-color: #334155;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --accent-color: #38bdf8;
+    --accent-hover: #0ea5e9;
+    --selection-color: rgba(56, 189, 248, 0.1);
+    --header-bg: rgba(30, 41, 59, 0.8);
+    --grid-line: #1e293b;
+    --ribbon-height: 100px;
+    --formula-height: 40px;
+    --title-height: 50px;
+    --status-height: 30px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    height: 100vh;
+    overflow: hidden;
+}
+
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+/* Title Bar */
+.title-bar {
+    height: var(--title-height);
+    background-color: var(--header-bg);
+    backdrop-filter: blur(10px);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border-color);
+    z-index: 10;
+}
+
+.logo {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 1.2rem;
+    color: var(--accent-color);
+    margin-right: 24px;
+}
+
+.file-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.filename {
+    font-weight: 500;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.filename:hover {
+    background-color: var(--border-color);
+}
+
+.status-badge {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    background-color: rgba(255, 255, 255, 0.05);
+    padding: 2px 8px;
+    border-radius: 12px;
+    transition: all 0.3s ease;
+    opacity: 0.6;
+}
+
+.status-badge.modified {
+    color: #fbbf24; /* Amber/Yellow for edited */
+    background-color: rgba(251, 191, 36, 0.1);
+    opacity: 1;
+}
+
+.status-badge.saved {
+    color: #22c55e; /* Green for saved */
+    background-color: rgba(34, 197, 94, 0.1);
+    opacity: 1;
+}
+
+.user-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.btn-share {
+    background-color: var(--accent-color);
+    color: var(--bg-color);
+    border: none;
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-share:hover {
+    background-color: var(--accent-hover);
+}
+
+.user-avatar {
+    width: 32px;
+    height: 32px;
+    background-color: #6366f1;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+}
+
+/* Ribbon Toolbar */
+.ribbon {
+    background-color: var(--surface-color);
+    border-bottom: 1px solid var(--border-color);
+    padding: 0 16px;
+}
+
+.ribbon-tabs {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.tab {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    border-radius: 4px 4px 0 0;
+}
+
+.tab.active {
+    color: var(--accent-color);
+    background-color: rgba(56, 189, 248, 0.05);
+    border-bottom: 2px solid var(--accent-color);
+}
+
+.ribbon-content {
+    height: 60px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+}
+
+.group {
+    display: flex;
+    gap: 4px;
+}
+
+.divider {
+    width: 1px;
+    height: 24px;
+    background-color: var(--border-color);
+    margin: 0 8px;
+}
+
+.tool-btn {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--text-primary);
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tool-btn:hover {
+    background-color: var(--border-color);
+}
+
+.tool-btn-text {
+    font-size: 1.1rem;
+    width: auto;
+    padding: 0 8px;
+}
+
+.tool-select, .tool-input {
+    background-color: var(--bg-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+/* Formula Bar */
+.formula-bar {
+    height: var(--formula-height);
+    background-color: var(--surface-color);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border-color);
+    gap: 0;
+}
+
+.cell-address {
+    width: 60px;
+    text-align: center;
+    font-weight: 600;
+    color: var(--accent-color);
+    border-right: 1px solid var(--border-color);
+    font-size: 0.9rem;
+}
+
+.formula-fx {
+    width: 40px;
+    text-align: center;
+    font-style: italic;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+#formula-input {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-family: 'Inter', sans-serif;
+    padding-left: 8px;
+}
+
+/* Grid Container */
+.grid-container {
+    flex: 1;
+    overflow: auto;
+    background-color: var(--bg-color);
+    position: relative;
+}
+
+.spreadsheet-table {
+    border-collapse: collapse;
+    table-layout: fixed;
+    user-select: none;
+    width: 0; /* Forces table to follow colgroup widths exactly */
+}
+
+.cell {
+    border: 1px solid var(--grid-line);
+    padding: 0 4px;
+    font-size: 0.85rem;
+    overflow: hidden;
+    white-space: pre-wrap;
+    text-overflow: ellipsis;
+    outline: none;
+    box-sizing: border-box;
+    display: table-cell;
+    vertical-align: middle;
+}
+
+.cell:focus {
+    height: auto;
+    min-height: 40px; /* Slightly taller to show it expanded */
+    overflow: visible;
+    z-index: 100;
+    position: relative;
+    background-color: var(--bg-color);
+    line-height: normal;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+.selection-overlay {
+    position: absolute;
+    border: 2px solid var(--accent-color);
+    background-color: var(--selection-color);
+    pointer-events: none;
+    z-index: 15;
+}
+
+/* Range Selection */
+.cell.in-range {
+    background-color: rgba(56, 189, 248, 0.08);
+}
+
+.range-overlay {
+    position: absolute;
+    border: 2px solid var(--accent-color);
+    pointer-events: none;
+    z-index: 14;
+    transition: all 0.05s ease;
+}
+
+.range-overlay.copy-flash {
+    animation: copyFlash 0.5s ease;
+}
+
+.range-overlay.cut-dashed {
+    border-style: dashed;
+    animation: cutMarching 0.5s linear infinite;
+}
+
+@keyframes copyFlash {
+    0%, 100% { border-color: var(--accent-color); }
+    50% { border-color: #22c55e; border-width: 3px; }
+}
+
+@keyframes cutMarching {
+    0% { border-color: var(--accent-color); }
+    50% { border-color: transparent; }
+}
+
+.cell.header {
+    background-color: var(--surface-color);
+    color: var(--text-secondary);
+    text-align: center;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+}
+
+.cell.row-header {
+    width: 40px;
+    position: sticky;
+    left: 0;
+    z-index: 6;
+}
+
+.cell.header.active {
+    color: var(--accent-color);
+    background-color: var(--selection-color);
+}
+
+.cell:focus {
+    outline: 2px solid var(--accent-color);
+    z-index: 10;
+}
+
+.fill-handle {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background-color: var(--accent-color);
+    border: 1px solid var(--bg-color);
+    cursor: crosshair;
+    z-index: 20;
+    pointer-events: auto;
+    margin-left: -5px;
+    margin-top: -5px;
+}
+
+/* Resize Guide Line */
+.resize-guide {
+    position: absolute;
+    background-color: var(--accent-color);
+    opacity: 0.6;
+    z-index: 50;
+    pointer-events: none;
+}
+
+/* Column/Row headers for resize */
+.col-header {
+    cursor: default;
+}
+
+.row-header {
+    cursor: default;
+}
+
+/* Status Bar */
+.status-bar {
+    height: var(--status-height);
+    background-color: var(--surface-color);
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.sheet-tabs {
+    display: flex;
+    height: 100%;
+    align-items: flex-end;
+}
+
+.sheet-tab {
+    padding: 4px 16px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-right: 1px solid var(--border-color);
+}
+
+.sheet-tab.active {
+    background-color: var(--bg-color);
+    color: var(--accent-color);
+}
+
+.sheet-tab.add-btn {
+    font-weight: bold;
+    font-size: 1rem;
+}
+
+.metrics {
+    margin-left: auto;
+    display: flex;
+    gap: 16px;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-color);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
+}

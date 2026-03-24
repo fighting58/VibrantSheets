@@ -1,0 +1,12 @@
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Project specific
+.gemini/
+*.csv
+node_modules/
