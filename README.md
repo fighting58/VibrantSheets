@@ -12,17 +12,21 @@ VibrantSheets is a modern, high-performance, and visually stunning web-based spr
 - **Micro-interactions**: Subtle animations, resize guides, and real-time status updates.
 
 ### ⌨️ Advanced Grid Interaction
+- **Infinite Scroll**: Dynamic row appending to ensure high performance with large datasets.
 - **Navigation**: Full keyboard support (Enter, Tab, Arrow keys, Shift+Tab/Enter).
 - **Multi-line Editing**: Support for multiple lines within a single cell via `Alt + Enter`.
 - **Range Selection**: Efficiently select multiple cells using mouse drag, `Shift + Click`, or `Shift + Arrow` keys.
 - **Fill Handle**: Bidirectional fill handle to copy data or extend patterns horizontally and vertically.
+- **Smart Clipboard**: Advanced TSV parser handles quoted cells and multi-line data from Excel/Google Sheets perfectly.
 
-### 📋 Clipboard & Data Management
-- **Smart Clipboard**: Full support for Copy (`Ctrl+C`), Paste (`Ctrl+V`), and Cut (`Ctrl+X`) with TSV (Tab-Separated Values) format for seamless compatibility with Microsoft Excel and Google Sheets.
+### 📋 File & Data Management
+- **.vsht Format**: Custom JSON format that preserves not only data but also **column widths and row heights**.
+- **Excel (.xlsx) Support**: Native binary `.xlsx` import powered by SheetJS.
+- **Smart Clipboard**: Full support for Copy/Paste with TSV format for seamless compatibility with Microsoft Excel/Google Sheets.
 - **CSV Support**: 
-    - **Advanced Import**: Smart parser that handles multi-line cells and auto-detects delimiters (comma, tab, semicolon).
-    - **Native Save**: Uses the modern `File System Access API` to provide a standard OS "Save As" dialog for choosing filenames and paths.
-    - **Excel Compatibility**: UTF-8 BOM encoding ensures Korean characters display correctly in Excel.
+    - **Advanced Import**: Smart parser that handles multi-line cells and auto-detects delimiters.
+    - **Native Save**: Uses `File System Access API` for a standard OS "Save As" experience.
+    - **Excel Compatibility**: UTF-8 BOM encoding for perfect Korean character support in Excel.
 
 ### 📏 Grid Customization
 - **Independent Resizing**: Drag the edges of row/column headers to customize grid dimensions without affecting neighboring cells.

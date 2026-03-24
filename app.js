@@ -107,7 +107,16 @@ class VibrantSheets {
         table.appendChild(headerRow);
         
         // Data Rows
-        for (let i = 1; i <= this.rows; i++) {
+        this.tbody = document.createElement('tbody');
+        table.appendChild(this.tbody);
+        this.createRowElements(1, this.rows);
+        
+        this.container.appendChild(table);
+    }
+
+    createRowElements(startRow, endRow) {
+        for (let i = startRow; i <= endRow; i++) {
+            if (!this.rowHeights[i]) this.rowHeights[i] = 25;
             const tr = document.createElement('tr');
             tr.style.height = `${this.rowHeights[i]}px`;
             
@@ -121,8 +130,12 @@ class VibrantSheets {
                 const td = document.createElement('td');
                 td.className = 'cell';
                 td.contentEditable = true;
-                const cellId = `${String.fromCharCode(65 + j)}${i}`;
+                const cellId = `${this.numberToCol(j + 1)}${i}`;
                 td.dataset.id = cellId;
+                
+                if (this.data[cellId]) {
+                    td.innerText = this.data[cellId];
+                }
                 
                 td.addEventListener('focus', () => this.handleCellFocus(td));
                 td.addEventListener('input', () => this.handleCellInput(td));
@@ -132,10 +145,8 @@ class VibrantSheets {
                 
                 tr.appendChild(td);
             }
-            table.appendChild(tr);
+            this.tbody.appendChild(tr);
         }
-        
-        this.container.appendChild(table);
     }
 
     // ─── Event Listeners ───────────────────────────────────
@@ -150,12 +161,22 @@ class VibrantSheets {
         });
 
         // CSV Open/Save buttons
-        document.getElementById('btn-open').addEventListener('click', () => this.openCSVDialog());
-        document.getElementById('btn-save').addEventListener('click', () => this.exportCSV());
+        document.getElementById('btn-open').addEventListener('click', () => this.openFileDialog());
+        document.getElementById('btn-save').addEventListener('click', () => this.exportFile());
 
         // Hidden file input for CSV import
         this.fileInput = document.getElementById('csv-file-input');
         this.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
+
+        // Infinite Scroll logic to minimize browser DOM burden
+        this.container.addEventListener('scroll', () => {
+            // Add rows when scroll reaches near the bottom of the container
+            if (this.container.scrollTop + this.container.clientHeight >= this.container.scrollHeight - 150) {
+                const rowsToAdd = 30;
+                this.createRowElements(this.rows + 1, this.rows + rowsToAdd);
+                this.rows += rowsToAdd;
+            }
+        });
 
         // Formula bar input
         this.formulaInput.addEventListener('input', (e) => {
@@ -220,11 +241,11 @@ class VibrantSheets {
                         break;
                     case 's':
                         e.preventDefault();
-                        this.exportCSV();
+                        this.exportFile();
                         break;
                     case 'o':
                         e.preventDefault();
-                        this.openCSVDialog();
+                        this.openFileDialog();
                         break;
                 }
             }
@@ -811,61 +832,145 @@ class VibrantSheets {
         this.flashCutBorder(range);
     }
 
-    pasteAtSelection() {
+    async pasteAtSelection() {
         if (!this.selectedCell) return;
 
         const anchor = this.parseCellId(this.selectedCell.dataset.id);
+        let rowsData = [];
+        let isInternalPaste = false;
 
-        if (this.clipboardData && this.clipboardData.length > 0) {
-            // Paste from internal clipboard
-            for (let r = 0; r < this.clipboardData.length; r++) {
-                for (let c = 0; c < this.clipboardData[r].length; c++) {
-                    const cell = this.getCellEl(anchor.colNum + c, anchor.row + r);
-                    if (cell) {
-                        cell.innerText = this.clipboardData[r][c];
-                        this.data[cell.dataset.id] = this.clipboardData[r][c];
-                    }
-                }
+        try {
+            // Priority: Attempt to read from system clipboard first
+            const text = await navigator.clipboard.readText();
+            
+            // Convert internal clipboard to TSV string for comparison if needed
+            const internalTsv = this.clipboardData ? this.clipboardData.map(r => r.join('\t')).join('\n') : null;
+
+            if (text && text.trim() !== '' && text !== internalTsv) {
+                rowsData = this.parseTSV(text);
+                isInternalPaste = false;
+            } else if (this.clipboardData && this.clipboardData.length > 0) {
+                rowsData = this.clipboardData;
+                isInternalPaste = true;
+            } else if (text && text.trim() !== '') {
+                rowsData = this.parseTSV(text);
+                isInternalPaste = false;
             }
-
-            // If it was a cut, clear source cells
-            if (this.isCut && this.cutRange) {
-                const { startCol, startRow, endCol, endRow } = this.cutRange;
-                for (let r = startRow; r <= endRow; r++) {
-                    for (let c = startCol; c <= endCol; c++) {
-                        const cell = this.getCellEl(c, r);
-                        if (cell) {
-                            cell.innerText = '';
-                            this.data[cell.dataset.id] = '';
-                        }
-                    }
-                }
-                this.isCut = false;
-                this.cutRange = null;
+        } catch (err) {
+            console.warn('System clipboard access denied, using internal data:', err);
+            if (this.clipboardData) {
+                rowsData = this.clipboardData;
+                isInternalPaste = true;
             }
-
-            // Select the pasted range
-            const pasteEndCol = anchor.colNum + this.clipboardData[0].length - 1;
-            const pasteEndRow = anchor.row + this.clipboardData.length - 1;
-            this.setSelectionRange(anchor.colNum, anchor.row, pasteEndCol, pasteEndRow);
-            this.updateRangeVisual();
-            this.updateFillHandlePosition();
-        } else {
-            // Try system clipboard
-            navigator.clipboard.readText().then(text => {
-                if (!text) return;
-                const rows = text.split('\n').map(r => r.split('\t'));
-                for (let r = 0; r < rows.length; r++) {
-                    for (let c = 0; c < rows[r].length; c++) {
-                        const cell = this.getCellEl(anchor.colNum + c, anchor.row + r);
-                        if (cell) {
-                            cell.innerText = rows[r][c];
-                            this.data[cell.dataset.id] = rows[r][c];
-                        }
-                    }
-                }
-            }).catch(() => {});
         }
+
+        if (rowsData.length === 0) return;
+
+        // Perform Paste
+        const numRows = rowsData.length;
+        const numCols = rowsData[0].length;
+
+        for (let r = 0; r < numRows; r++) {
+            for (let c = 0; c < numCols; c++) {
+                const targetRow = anchor.row + r;
+                const targetColNum = anchor.colNum + c;
+
+                // Auto-expand rows if pasting beyond current limit
+                if (targetRow > this.rows) {
+                    const rowsToAdd = Math.max(30, targetRow - this.rows);
+                    this.createRowElements(this.rows + 1, this.rows + rowsToAdd);
+                    this.rows += rowsToAdd;
+                }
+
+                if (targetColNum <= this.cols) {
+                    const cell = this.getCellEl(targetColNum, targetRow);
+                    if (cell) {
+                        const val = rowsData[r][c] || '';
+                        cell.innerText = val;
+                        this.data[cell.dataset.id] = val;
+                    }
+                }
+            }
+        }
+
+        // If it was an internal cut, clear source cells
+        if (isInternalPaste && this.isCut && this.cutRange) {
+            const { startCol, startRow, endCol, endRow } = this.cutRange;
+            for (let r = startRow; r <= endRow; r++) {
+                for (let c = startCol; c <= endCol; c++) {
+                    const cell = this.getCellEl(c, r);
+                    if (cell) {
+                        cell.innerText = '';
+                        this.data[cell.dataset.id] = '';
+                    }
+                }
+            }
+            this.isCut = false;
+            this.cutRange = null;
+            // Clear dashed border
+            if (this.rangeOverlay) this.rangeOverlay.classList.remove('cut-dashed');
+        }
+
+        // Update State & UI
+        this.markDirty();
+        this.updateItemCount();
+
+        // Select the pasted range
+        this.setSelectionRange(anchor.colNum, anchor.row, anchor.colNum + numCols - 1, anchor.row + numRows - 1);
+        this.updateRangeVisual();
+        this.updateFillHandlePosition();
+    }
+
+    parseTSV(text) {
+        const rows = [];
+        let currentRow = [];
+        let currentField = '';
+        let inQuotes = false;
+
+        // Normalize newlines
+        const cleanText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+        for (let i = 0; i < cleanText.length; i++) {
+            const char = cleanText[i];
+            const nextChar = cleanText[i + 1];
+
+            if (inQuotes) {
+                if (char === '"' && nextChar === '"') {
+                    currentField += '"';
+                    i++;
+                } else if (char === '"') {
+                    inQuotes = false;
+                } else {
+                    currentField += char;
+                }
+            } else {
+                if (char === '"') {
+                    inQuotes = true;
+                } else if (char === '\t') {
+                    currentRow.push(currentField);
+                    currentField = '';
+                } else if (char === '\n') {
+                    currentRow.push(currentField);
+                    rows.push(currentRow);
+                    currentRow = [];
+                    currentField = '';
+                } else {
+                    currentField += char;
+                }
+            }
+        }
+
+        if (currentField !== '' || currentRow.length > 0) {
+            currentRow.push(currentField);
+            rows.push(currentRow);
+        }
+
+        // Remove potential empty trailing row often added by Excel copies
+        if (rows.length > 1 && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0] === '') {
+            rows.pop();
+        }
+
+        return rows;
     }
 
     deleteSelection() {
@@ -1057,8 +1162,8 @@ class VibrantSheets {
         }
     }
 
-    // ─── CSV Import / Export ───────────────────────────────
-    openCSVDialog() {
+    // ─── File Import / Export ───────────────────────────────
+    openFileDialog() {
         this.fileInput.value = ''; // Reset so same file can be reopened
         this.fileInput.click();
     }
@@ -1070,40 +1175,95 @@ class VibrantSheets {
         // Check if there's existing data
         const hasData = Object.keys(this.data).some(k => this.data[k] && this.data[k].trim() !== '');
         if (hasData) {
-            if (!confirm('기존 데이터가 있습니다. 덮어쓰시겠습니까?\n(Existing data will be overwritten)')) {
+            if (!confirm('기존 데이터가 있거나 작업 중인 내용이 덮어씌워질 수 있습니다. 계속할까요?\n(Existing data may be overwritten. Continue?)')) {
                 return;
             }
         }
 
+        const extension = file.name.split('.').pop().toLowerCase();
         const reader = new FileReader();
-        reader.onload = (event) => {
-            const text = event.target.result;
-            this.importCSV(text);
 
-            // Update filename display
-            const filenameEl = document.querySelector('.filename');
-            if (filenameEl) {
-                filenameEl.innerText = file.name.replace(/\.[^.]+$/, '');
+        reader.onload = (event) => {
+            try {
+                if (extension === 'xlsx' || extension === 'xls') {
+                    this.importXLSX(event.target.result);
+                } else if (extension === 'vsht') {
+                    this.importVSHT(event.target.result);
+                } else {
+                    // Fallback to text parsing (CSV/TSV/TXT)
+                    this.importFromText(event.target.result);
+                }
+
+                // Update filename display
+                const filenameEl = document.querySelector('.filename');
+                if (filenameEl) {
+                    filenameEl.innerText = file.name.replace(/\.[^.]+$/, '');
+                }
+            } catch (err) {
+                console.error('File import failed:', err);
+                alert('파일을 불러오는 데 실패했습니다. 지원되는 형식인지 확인해 주세요.\n(Failed to load file. Please check the format.)');
             }
         };
-        reader.readAsText(file, 'UTF-8');
+
+        if (extension === 'xlsx' || extension === 'xls') {
+            reader.readAsArrayBuffer(file);
+        } else {
+            reader.readAsText(file, 'UTF-8');
+        }
     }
 
-    detectDelimiter(text) {
-        const firstLine = text.split('\n')[0] || '';
-        const commas = (firstLine.match(/,/g) || []).length;
-        const tabs = (firstLine.match(/\t/g) || []).length;
-        const semis = (firstLine.match(/;/g) || []).length;
+    // 1. .vsht Import (JSON based, full layout)
+    importVSHT(jsonText) {
+        const doc = JSON.parse(jsonText);
+        
+        // Clear current
+        this.clearAllData(false);
 
-        if (tabs >= commas && tabs >= semis && tabs > 0) return '\t';
-        if (semis > commas && semis > 0) return ';';
-        return ',';
+        // Restore Metadata
+        if (doc.colWidths) this.colWidths = doc.colWidths;
+        if (doc.rowHeights) this.rowHeights = doc.rowHeights;
+        this.data = doc.data || {};
+
+        // Re-render or Refresh UI
+        this.refreshGridUI();
+        
+        this.updateItemCount();
+        this.markClean();
     }
 
+    // 2. .xlsx Import (using SheetJS)
+    importXLSX(buffer) {
+        if (typeof XLSX === 'undefined') {
+            alert('Excel 라이브러리를 불러오지 못했습니다. 네트워크 연결을 확인해 주세요.');
+            return;
+        }
 
-    importCSV(text) {
-        // Clear existing data
-        this.clearAllData();
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        
+        // Convert to 2D array
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+        this.clearAllData(false);
+        
+        jsonData.forEach((row, i) => {
+            row.forEach((cellValue, j) => {
+                const cellId = `${this.numberToCol(j + 1)}${i + 1}`;
+                const val = cellValue === null || cellValue === undefined ? '' : String(cellValue);
+                this.data[cellId] = val;
+            });
+        });
+
+        this.refreshGridUI();
+        this.updateItemCount();
+        this.markClean();
+    }
+
+    // 3. CSV/TSV Text Import
+    importFromText(text) {
+        // Clear existing
+        this.clearAllData(false);
 
         // Remove BOM if present
         if (text.charCodeAt(0) === 0xFEFF) {
@@ -1112,7 +1272,7 @@ class VibrantSheets {
 
         const delimiter = this.detectDelimiter(text);
         
-        // Advanced CSV Parsing (handles multi-line cells)
+        // Advanced Parsing (handles multi-line cells)
         let row = 0;
         let col = 0;
         let currentField = '';
@@ -1137,17 +1297,17 @@ class VibrantSheets {
                 if (ch === '"') {
                     inQuotes = true;
                 } else if (ch === delimiter) {
-                    this.setCellData(row + 1, col + 1, currentField);
+                    this.setInternalData(row + 1, col + 1, currentField);
                     currentField = '';
                     col++;
                 } else if (ch === '\r' && nextCh === '\n') {
-                    this.setCellData(row + 1, col + 1, currentField);
+                    this.setInternalData(row + 1, col + 1, currentField);
                     currentField = '';
                     row++;
                     col = 0;
                     i++; // Skip \n
                 } else if (ch === '\n' || ch === '\r') {
-                    this.setCellData(row + 1, col + 1, currentField);
+                    this.setInternalData(row + 1, col + 1, currentField);
                     currentField = '';
                     row++;
                     col = 0;
@@ -1157,27 +1317,126 @@ class VibrantSheets {
             }
         }
         
-        // Last field if not ended with newline
         if (currentField !== '' || col > 0) {
-            this.setCellData(row + 1, col + 1, currentField);
+            this.setInternalData(row + 1, col + 1, currentField);
         }
 
-        // Update status
+        this.refreshGridUI();
         this.updateItemCount();
         this.markClean();
     }
 
-    setCellData(rowNum, colNum, value) {
-        if (rowNum > this.rows || colNum > this.cols) return;
+    setInternalData(rowNum, colNum, value) {
+        // Automatically grow if needed (just in case)
+        if (rowNum > this.rows) {
+            this.createRowElements(this.rows + 1, rowNum);
+            this.rows = rowNum;
+        }
         const cellId = `${this.numberToCol(colNum)}${rowNum}`;
-        const cell = document.querySelector(`[data-id="${cellId}"]`);
-        if (cell) {
-            cell.innerText = value;
-            this.data[cellId] = value;
+        this.data[cellId] = value;
+    }
+
+    refreshGridUI() {
+        // Clear current table content and re-render or just update exists
+        // Easiest is to update the <tbody> content
+        if (this.tbody) {
+            this.tbody.innerHTML = '';
+            this.createRowElements(1, Math.max(50, this.rows));
+        }
+
+        // Apply column widths
+        if (this.colgroup) {
+            Array.from(this.colgroup.children).forEach((colEl, idx) => {
+                if (idx > 0) { // skip row header col
+                    colEl.style.width = `${this.colWidths[idx - 1]}px`;
+                }
+            });
         }
     }
 
-    async exportCSV() {
+    detectDelimiter(text) {
+        const firstLine = text.split('\n')[0] || '';
+        const commas = (firstLine.match(/,/g) || []).length;
+        const tabs = (firstLine.match(/\t/g) || []).length;
+        const semis = (firstLine.match(/;/g) || []).length;
+
+        if (tabs >= commas && tabs >= semis && tabs > 0) return '\t';
+        if (semis > commas && semis > 0) return ';';
+        return ',';
+    }
+
+    async exportFile() {
+        // Prepare VSHT Data
+        const vshtData = {
+            version: "1.0",
+            title: document.querySelector('.filename')?.innerText || 'Untitled',
+            data: this.data,
+            colWidths: this.colWidths,
+            rowHeights: this.rowHeights,
+            rows: this.rows,
+            cols: this.cols
+        };
+
+        const jsonString = JSON.stringify(vshtData, null, 2);
+
+        // Filename
+        const filenameEl = document.querySelector('.filename');
+        const defaultName = filenameEl ? filenameEl.innerText.trim() : 'VibrantSheets';
+
+        // Try File System Access API
+        if ('showSaveFilePicker' in window) {
+            try {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: `${defaultName}.vsht`,
+                    types: [
+                        {
+                            description: 'VibrantSheets Document (.vsht)',
+                            accept: { 'application/json': ['.vsht'] },
+                        },
+                        {
+                            description: 'CSV File (.csv)',
+                            accept: { 'text/csv': ['.csv'] },
+                        }
+                    ],
+                });
+                
+                const writable = await handle.createWritable();
+                const fileName = handle.name;
+                
+                if (fileName.endsWith('.csv')) {
+                    // Export as CSV
+                    const csvContent = this.generateCSVContent();
+                    await writable.write(csvContent);
+                } else {
+                    // Export as .vsht (JSON)
+                    await writable.write(jsonString);
+                }
+                
+                await writable.close();
+
+                if (filenameEl) {
+                    filenameEl.innerText = handle.name.replace(/\.[^.]+$/, '');
+                }
+                this.markClean();
+                return;
+            } catch (err) {
+                if (err.name === 'AbortError') return;
+                console.error('File System Access API failed:', err);
+            }
+        }
+
+        // Fallback Download
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${defaultName}.vsht`;
+        link.click();
+        URL.revokeObjectURL(url);
+        this.markClean();
+    }
+
+    generateCSVContent() {
         // Find used range
         let maxRow = 0, maxCol = 0;
         for (const key in this.data) {
@@ -1188,19 +1447,12 @@ class VibrantSheets {
             }
         }
 
-        if (maxRow === 0 || maxCol === 0) {
-            alert('내보낼 데이터가 없습니다.\n(No data to export)');
-            return;
-        }
-
-        // Build CSV content
         const rows = [];
         for (let r = 1; r <= maxRow; r++) {
             const rowFields = [];
             for (let c = 1; c <= maxCol; c++) {
                 const cellId = `${this.numberToCol(c)}${r}`;
                 let val = this.data[cellId] || '';
-                // Escape fields containing comma, quote, or newline
                 if (val.includes(',') || val.includes('"') || val.includes('\n')) {
                     val = '"' + val.replace(/"/g, '""') + '"';
                 }
@@ -1208,70 +1460,17 @@ class VibrantSheets {
             }
             rows.push(rowFields.join(','));
         }
-
-        // UTF-8 BOM for Korean Excel compatibility
-        const bom = '\uFEFF';
-        const csvContent = bom + rows.join('\r\n');
-
-        // Filename
-        const filenameEl = document.querySelector('.filename');
-        const defaultName = filenameEl ? filenameEl.innerText.trim() : 'VibrantSheets';
-
-        // Try File System Access API (showSaveFilePicker)
-        if ('showSaveFilePicker' in window) {
-            try {
-                const handle = await window.showSaveFilePicker({
-                    suggestedName: `${defaultName}.csv`,
-                    types: [{
-                        description: 'CSV File (Excel Compatible)',
-                        accept: { 'text/csv': ['.csv'] },
-                    }],
-                });
-                
-                const writable = await handle.createWritable();
-                await writable.write(csvContent);
-                await writable.close();
-
-                // Update filename from the chosen file
-                if (filenameEl) {
-                    filenameEl.innerText = handle.name.replace(/\.[^.]+$/, '');
-                }
-
-                this.showSaveSuccess();
-                return;
-            } catch (err) {
-                // User cancelled or other error
-                if (err.name === 'AbortError') return;
-                console.error('File System Access API failed, falling back to download:', err);
-            }
-        }
-
-        // Fallback for older browsers or File System Access API failure
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${defaultName}.csv`;
-
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-
-        this.showSaveSuccess();
+        return '\uFEFF' + rows.join('\r\n');
     }
 
-    showSaveSuccess() {
-        this.markClean();
-    }
-
-    clearAllData() {
-        for (const key in this.data) {
-            const cell = document.querySelector(`[data-id="${key}"]`);
-            if (cell) cell.innerText = '';
+    clearAllData(shouldMarkDirty = true) {
+        if (this.tbody) {
+            this.tbody.querySelectorAll('.cell').forEach(cell => {
+                cell.innerText = '';
+            });
         }
         this.data = {};
-        this.markDirty();
+        if (shouldMarkDirty) this.markDirty();
         this.updateItemCount();
     }
 

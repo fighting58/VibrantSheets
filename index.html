@@ -6,6 +6,8 @@
     <title>VibrantSheets - Premium Spreadsheet</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;600&display=swap" rel="stylesheet">
+    <!-- SheetJS for Excel (.xlsx) support -->
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
 </head>
 <body class="dark-mode">
     <div id="app">
@@ -61,8 +63,8 @@
             </div>
         </nav>
 
-        <!-- Hidden file input for CSV import -->
-        <input type="file" id="csv-file-input" accept=".csv,.tsv,.txt" style="display:none">
+        <!-- Hidden file input for CSV/XLSX/VSHT import -->
+        <input type="file" id="csv-file-input" accept=".vsht,.xlsx,.xls,.csv,.tsv,.txt" style="display:none">
 
         <!-- Formula Bar -->
         <div class="formula-bar">

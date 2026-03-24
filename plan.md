@@ -13,20 +13,21 @@ A modern, high-performance, and visually stunning web-based spreadsheet applicat
 
 ## 3. 핵심 기능 (Core Features)
 
-### 3.1 그리드 시스템 (Grid System)
-- 무한 스크롤(가상화 렌더링) 지원
+### 3.1 그리드 시스템 (Grid System) ✅
+- **무한 스크롤(Lazy Loading)**: 스크롤에 따라 행을 동적으로 추가하여 DOM 부하 최소화 및 성능 최적화
 - 행(Row) 및 열(Column) 헤더 표시 (A, B, C... / 1, 2, 3...)
-- 셀 선택, 다중 선택 지원
+- 셀 선택, 다중 선택 지원 (Range Selection)
 
 ### 3.2 셀 편집 및 서식 (Cell Editing & Formatting)
 - 인라인 셀 편집 및 엔터/탭 키를 이용한 셀 간 이동
 - 텍스트 스타일링 (굵게, 기울임꼴, 색상, 정렬) 및 셀 배경색
 - 숫자 형식 지정 (통화, 퍼센트, 날짜)
 
-### 3.3 고급 인터랙션 (Advanced Interaction)
+### 3.3 고급 인터랙션 (Advanced Interaction) ✅
 - **끌어서 채우기(Fill Handle)**: 선택 영역 우측 하단 핸들을 드래그하여 데이터 자동 채우기
 - **다중 셀 선택(Range Selection)**: 클릭 드래그 또는 Shift+클릭으로 여러 셀 동시 선택
-- **실시간 수식 미리보기**: 수식 입력 시 결과값 실시간 계산
+- **스마트 클립보드**: 엑셀/구글 시트의 다중 라인 및 따옴표 포함 텍스트 완벽 지원 (TSV 파서)
+- **실시간 수식 미리보기**: 수식 입력 시 결과값 실시간 계산 (진행 중)
 
 ### 3.4 수식 처리 (Formula Engine)
 - 기본 산술 연산 (+, -, *, /)
@@ -38,11 +39,11 @@ A modern, high-performance, and visually stunning web-based spreadsheet applicat
 - **자동 저장**: 브라우저 로컬 스토리지를 이용한 실시간 세션 유지
 - **데이터 호환**: JSON 또는 CSV 형식으로 데이터 저장 및 불러오기
 
-### 3.6 CSV 불러오기 / 내보내기 (CSV Import / Export) ✅
-- **CSV 불러오기**: 리얼 파서를 통한 멀티라인(줄바꿈) 셀 완벽 복원 지원
-  - 구분자 자동 감지 (쉼표, 탭, 세미콜론)
-- **CSV 내보내기**: `File System Access API`를 이용한 OS 표준 '다른 이름으로 저장' 지원
-  - UTF-8 BOM 포함 (Excel 한글 호환)
+### 3.6 파일 시스템 및 외부 연동 ✅
+- **.vsht 전용 포맷**: JSON 기반의 커스텀 포맷으로 데이터, 열 너비, 행 높이 등 전체 레이아웃 완벽 보존
+- **Excel (.xlsx) 불러오기**: SheetJS 연동을 통해 실제 바이너리 엑셀 파일 직접 로드 지원
+- **CSV 불러오기/내보내기**: 리얼 파서를 통한 멀티라인(줄바꿈) 셀 완벽 복원 지원
+- **네이티브 저장**: `File System Access API`를 이용한 OS 표준 '다른 이름으로 저장' 지원 (UTF-8 BOM 포함)
 
 ### 3.7 행/열 크기 조절 및 상태 관리 ✅
 - **크기 조절**: 헤더 경계선 드래그를 통한 독립적인 너비/높이 조절
@@ -61,3 +62,4 @@ A modern, high-performance, and visually stunning web-based spreadsheet applicat
 6. **Phase 5**: 스타일링 툴바 및 서식 적용 기능 (B, I, 색상 등) ⬅️ 다음
 7. **Phase 6**: 수식 엔진 파서 구현 및 참조 로직 연동
 8. **Phase 7**: GitHub 저장소 생성 및 코드 업로드 ✅
+9. **Special Work**: 무한 스크롤 성능 최적화 및 .vsht/.xlsx 통합 지원 ✅
