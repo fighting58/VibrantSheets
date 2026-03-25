@@ -68,9 +68,12 @@ VibrantSheets는 Vanilla JavaScript/CSS로 만든 웹 기반 스프레드시트 
 - [x] Find/Replace
 - [x] Multi-Sheet
 - [x] Simple Formula Engine
-- [ ] Phase 8: Formula Engine Core (확장)
-- [ ] Phase 9: Built-in Functions
+- [x] Phase 8: Formula Engine Core (확장)
+- [x] Phase 9: Built-in Functions
 - [ ] Phase 10: Persistence & Recovery
+  - [ ] 자동 저장(localStorage)
+  - [ ] 세션 복구
+  - [ ] 최근 파일 목록
 
 ## 함수 동작 규격(간단 버전)
 - 숫자 문자열은 자동 변환, 비숫자는 문자열 유지

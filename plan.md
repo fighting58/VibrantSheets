@@ -63,13 +63,10 @@ VibrantSheets는 브라우저에서 동작하는 Excel 스타일 스프레드시
 
 ## 4. 다음 단계
 
-### Phase 8: Formula Engine Core (확장)
-- 수식 파서 토큰화/파싱 (`=A1+B2`, 괄호, 우선순위)
-- 셀 참조 평가 및 순환 참조 감지 고도화
-
-### Phase 9: Built-in Functions
-- `SUM`, `AVG`, `COUNT`, `MIN`, `MAX`
-- 범위 참조(`A1:C10`) 평가 강화
+### Phase 10: Persistence & Recovery
+- `localStorage` 자동 저장
+- 세션 복구/최근 파일 목록
+- 사용자 정의 리스트 관리(로컬 저장)
 
 ### Phase 10: Persistence & Recovery
 - `localStorage` 자동 저장
