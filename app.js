@@ -172,20 +172,23 @@ class VibrantSheets {
 
     // ─── Event Listeners ───────────────────────────────────
     setupEventListeners() {
-        // Toolbar buttons
+        // Styling buttons (Bold, Italic handled by execCommand AND toggleStyle for persistence)
         document.getElementById('btn-bold').addEventListener('click', () => {
             document.execCommand('bold', false, null);
+            this.toggleStyle('fontWeight', 'bold', 'normal');
         });
-        
         document.getElementById('btn-italic').addEventListener('click', () => {
             document.execCommand('italic', false, null);
+            this.toggleStyle('fontStyle', 'italic', 'normal');
         });
-
-        // Styling buttons
-        document.getElementById('btn-bold').addEventListener('click', () => this.toggleStyle('fontWeight', 'bold', 'normal'));
-        document.getElementById('btn-italic').addEventListener('click', () => this.toggleStyle('fontStyle', 'italic', 'normal'));
-        document.getElementById('btn-underline').addEventListener('click', () => this.toggleStyle('textDecoration', 'underline', 'none'));
-        document.getElementById('btn-strike').addEventListener('click', () => this.toggleStyle('textDecoration', 'line-through', 'none'));
+        document.getElementById('btn-underline').addEventListener('click', () => {
+            document.execCommand('underline', false, null);
+            this.toggleStyle('textDecoration', 'underline', 'none');
+        });
+        document.getElementById('btn-strike').addEventListener('click', () => {
+            document.execCommand('strikethrough', false, null);
+            this.toggleStyle('textDecoration', 'line-through', 'none');
+        });
 
         // Color pickers
         document.getElementById('text-color').addEventListener('input', (e) => this.applyStyle('color', e.target.value));
@@ -204,6 +207,12 @@ class VibrantSheets {
         document.getElementById('btn-open').addEventListener('click', () => this.openFileDialog());
         document.getElementById('btn-save').addEventListener('click', () => this.saveFile());
         document.getElementById('btn-save-as').addEventListener('click', () => this.saveFileAs());
+
+        // Table Operations
+        document.getElementById('btn-insert-row').addEventListener('click', () => this.insertRow());
+        document.getElementById('btn-delete-row').addEventListener('click', () => this.deleteRow());
+        document.getElementById('btn-insert-col').addEventListener('click', () => this.insertColumn());
+        document.getElementById('btn-delete-col').addEventListener('click', () => this.deleteColumn());
 
         // Hidden file input for CSV import
         this.fileInput = document.getElementById('csv-file-input');
@@ -1706,20 +1715,24 @@ class VibrantSheets {
     }
 
     refreshGridUI() {
-        // Clear current table content and re-render or just update exists
-        // Easiest is to update the <tbody> content
-        if (this.tbody) {
-            this.tbody.innerHTML = '';
-            this.createRowElements(1, Math.max(50, this.rows));
-        }
-
-        // Apply column widths
-        if (this.colgroup) {
-            Array.from(this.colgroup.children).forEach((colEl, idx) => {
-                if (idx > 0) { // skip row header col
-                    colEl.style.width = `${this.colWidths[idx - 1]}px`;
-                }
-            });
+        if (this.container) {
+            this.container.innerHTML = '';
+            
+            // Re-create overlays that were inside the container
+            this.selectionOverlay = this.createOverlay('selection-overlay');
+            this.rangeOverlay = this.createOverlay('range-overlay');
+            this.fillHandle = this.createOverlay('fill-handle');
+            this.resizeGuide = this.createOverlay('resize-guide');
+            
+            this.renderGrid();
+            
+            // Re-attach fill handle listener (since we just created a new one)
+            this.fillHandle.addEventListener('mousedown', (e) => this.handleFillStart(e));
+            
+            // Refresh overlays
+            this.updateSelectionOverlay();
+            this.updateRangeVisual();
+            this.updateFillHandlePosition();
         }
     }
 
@@ -1953,9 +1966,160 @@ class VibrantSheets {
             metricsSpan.innerText = `Items: ${count}`;
         }
     }
+
+    // ─── Phase 6: Table Operations ────────────────────────
+    getEffectiveRange() {
+        if (this.selectionRange) {
+            return this.selectionRange;
+        }
+        if (this.selectedCell) {
+            const { colNum, row } = this.parseCellId(this.selectedCell.dataset.id);
+            return { startCol: colNum, startRow: row, endCol: colNum, endRow: row };
+        }
+        return null;
+    }
+
+    insertRow() {
+        const range = this.getEffectiveRange();
+        const index = range ? range.startRow : 1;
+        this.shiftData('row', index, 1);
+        this.rowHeights.splice(index, 0, 25);
+        this.rows++;
+        this.refreshGridUI();
+        this.markDirty();
+        
+        // Select the newly inserted row's first cell
+        const nextCell = this.getCellEl(range ? range.startCol : 1, index);
+        if (nextCell) {
+            nextCell.focus();
+            this.handleCellFocus(nextCell);
+        }
+    }
+
+    deleteRow() {
+        const range = this.getEffectiveRange();
+        if (!range) return;
+        const index = range.startRow;
+        const count = range.endRow - range.startRow + 1;
+
+        this.showConfirm(`${count}개 행을 삭제하시겠습니까?`, () => {
+            this.shiftData('row', index + count, -count);
+            this.rowHeights.splice(index, count);
+            this.rows -= count;
+            this.refreshGridUI();
+            this.markDirty();
+
+            const targetRow = Math.min(index, this.rows);
+            const nextCell = this.getCellEl(range.startCol, targetRow);
+            if (nextCell) {
+                nextCell.focus();
+                this.handleCellFocus(nextCell);
+            }
+        });
+    }
+
+    insertColumn() {
+        const range = this.getEffectiveRange();
+        const index = range ? range.startCol : 1;
+        this.shiftData('col', index, 1);
+        this.colWidths.splice(index - 1, 0, 100);
+        this.cols++;
+        this.refreshGridUI();
+        this.markDirty();
+
+        const nextCell = this.getCellEl(index, range ? range.startRow : 1);
+        if (nextCell) {
+            nextCell.focus();
+            this.handleCellFocus(nextCell);
+        }
+    }
+
+    deleteColumn() {
+        const range = this.getEffectiveRange();
+        if (!range) return;
+        const index = range.startCol;
+        const count = range.endCol - range.startCol + 1;
+
+        this.showConfirm(`${count}개 열을 삭제하시겠습니까?`, () => {
+            this.shiftData('col', index + count, -count);
+            this.colWidths.splice(index - 1, count);
+            this.cols -= count;
+            this.refreshGridUI();
+            this.markDirty();
+
+            const targetCol = Math.min(index, this.cols);
+            const nextCell = this.getCellEl(targetCol, range.startRow);
+            if (nextCell) {
+                nextCell.focus();
+                this.handleCellFocus(nextCell);
+            }
+        });
+    }
+
+    showConfirm(message, onConfirm) {
+        const modal = document.getElementById('confirm-modal');
+        const msg = document.getElementById('confirm-message');
+        const btnOk = document.getElementById('confirm-ok');
+        const btnCancel = document.getElementById('confirm-cancel');
+        if (!modal) { if (confirm(message)) onConfirm(); return; }
+        msg.textContent = message;
+        modal.style.display = 'flex';
+        const close = () => { modal.style.display = 'none'; btnOk.onclick = null; btnCancel.onclick = null; };
+        btnOk.onclick = () => { close(); onConfirm(); };
+        btnCancel.onclick = () => close();
+    }
+
+    shiftData(type, threshold, delta) {
+        const newData = {};
+        const newStyles = {};
+
+        // Helper to shift a single coordinate
+        const shiftCoord = (coord, t, d) => (coord >= t ? coord + d : coord);
+
+        // Process data
+        for (const key in this.data) {
+            const { col, row, colNum } = this.parseCellId(key);
+            let nRow = row;
+            let nColNum = colNum;
+
+            if (type === 'row') {
+                nRow = shiftCoord(row, threshold, delta);
+            } else {
+                nColNum = shiftCoord(colNum, threshold, delta);
+            }
+
+            if (nRow > 0 && nColNum > 0) {
+                const newKey = `${this.numberToCol(nColNum)}${nRow}`;
+                newData[newKey] = this.data[key];
+            }
+        }
+
+        // Process styles
+        for (const key in this.cellStyles) {
+            const { col, row, colNum } = this.parseCellId(key);
+            let nRow = row;
+            let nColNum = colNum;
+
+            if (type === 'row') {
+                nRow = shiftCoord(row, threshold, delta);
+            } else {
+                nColNum = shiftCoord(colNum, threshold, delta);
+            }
+
+            if (nRow > 0 && nColNum > 0) {
+                const newKey = `${this.numberToCol(nColNum)}${nRow}`;
+                newStyles[newKey] = this.cellStyles[key];
+            }
+        }
+
+        this.data = newData;
+        this.cellStyles = newStyles;
+    }
 }
 
-// Initialize on load
-document.addEventListener('DOMContentLoaded', () => {
+// Initialize immediately (script is at bottom of body)
+try {
     window.sheets = new VibrantSheets();
-});
+} catch (err) {
+    console.error('VibrantSheets initialization failed:', err);
+}

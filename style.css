@@ -175,6 +175,13 @@ body {
     margin: 0 8px;
 }
 
+.divider-small {
+    width: 1px;
+    height: 16px;
+    background-color: var(--border-color);
+    margin: 0 4px;
+}
+
 .tool-btn {
     background: none;
     border: 1px solid transparent;

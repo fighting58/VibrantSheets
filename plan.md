@@ -29,7 +29,6 @@ A modern, high-performance, and visually stunning web-based spreadsheet applicat
 - **끌어서 채우기(Fill Handle)**: 선택 영역 우측 하단 핸들을 드래그하여 데이터 자동 채우기
 - **다중 셀 선택(Range Selection)**: 클릭 드래그 또는 Shift+클릭으로 여러 셀 동시 선택
 - **스마트 클립보드**: 엑셀/구글 시트의 다중 라인 및 따옴표 포함 텍스트 완벽 지원 (TSV 파서)
-- **실시간 수식 미리보기**: 수식 입력 시 결과값 실시간 계산 (진행 중)
 
 ### 3.4 수식 처리 (Formula Engine)
 - 기본 산술 연산 (+, -, *, /)
@@ -51,23 +50,30 @@ A modern, high-performance, and visually stunning web-based spreadsheet applicat
 - **크기 조절**: 헤더 경계선 드래그를 통한 독립적인 너비/높이 조절
 - **실시간 상태 배지**: 'Edited' (수정됨) 및 'Saved' (저장됨) 상태 표시 시스템
 
+### 3.8 테이블 구조 제어 (Table Operations) ✅
+- **행 삽입**: 현재 선택 셀 위에 빈 행 삽입 — 아래 모든 셀 데이터 및 스타일 자동 시프트
+- **행 삭제**: 현재 선택 행(들) 삭제 — 위 방향으로 데이터 병합, 커스텀 확인 모달 제공
+- **열 삽입**: 현재 선택 열 왼쪽에 빈 열 삽입 — 오른쪽 모든 셀 자동 시프트
+- **열 삭제**: 현재 선택 열(들) 삭제 — 데이터 및 스타일 좌측 병합
+- **데이터 무결성**: 삽입/삭제 시 `data` 객체 및 `cellStyles` 맵의 모든 키를 재계산하여 일관성 유지
+- **리본 UI**: 직관적인 아이콘(+/- 표시)이 적용된 4개 버튼을 리본 툴바에 배치
+
 ## 4. 디자인 컨셉 (Design Concept)
 - **Vibrant & Premium**: 유리 질감(Glassmorphism), 다크 모드 기반의 세련된 디자인
 - **Micro-interactions**: 부드러운 상태 전환 애니메이션 및 리사이즈 가이드
 
-## 5. 단계별 개발 계획 (Implementation Roadmap) - 업데이트됨
+## 5. 단계별 개발 계획 (Implementation Roadmap)
 1. **Phase 1~5 Complete**: 그리드 최적화, 파일 핸들링, 고급 셀 인터랙션, 스타일링 시스템 완료 ✅
-2. **Phase 6: 행/열 제어 (Row/Column Operations)** ⬅️ **현재 목표**
-    - 행/열 삽입 및 삭제 기능 구현
-    - 셀 참조 정보 업데이트 로직 기초 설계
-4. **Phase 7: 데이터 포맷팅 (Data Formatting)**
+2. **Phase 6: 행/열 제어 (Row/Column Operations)** ✅ **완료**
+    - 행/열 삽입 및 삭제 기능 구현 (리본 툴바 UI 포함)
+    - 데이터 시프트 엔진 (`shiftData`) 및 커스텀 확인 모달 구현
+3. **Phase 7: 데이터 포맷팅 (Data Formatting)** ⬅️ **현재 목표**
     - 통화, 퍼센트, 이진수, 날짜 형식 표시기 구현
     - 소수점 자릿수 조절 기능
-5. **Phase 8: 수식 엔진 (Formula Engine)**
+4. **Phase 8: 수식 엔진 (Formula Engine)**
     - 수식 파서 (Parser) 및 셀 참조 로직 (`=A1+B1`)
     - 기본 함수 구현 (`SUM`, `AVG`, `COUNT`, `MIN`, `MAX`)
-6. **Phase 9: 자동 저장 및 세션 복구**
+5. **Phase 9: 자동 저장 및 세션 복구**
     - `localStorage`를 이용한 비정상 종료 대비 실시간 임시 저장
     - 최근 파일 목록 (Recent Files) 관리
-7. **Phase 10: GitHub 프로젝트 관리 및 배포 ✅ (진행 중)**
-
+6. **Phase 10: GitHub 프로젝트 관리 및 배포** ✅ (진행 중)

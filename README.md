@@ -2,8 +2,6 @@
 
 VibrantSheets is a modern, high-performance, and visually stunning web-based spreadsheet application built with Vanilla JavaScript and CSS. It features a premium Glassmorphism design with a dark mode aesthetic, focusing on a smooth and intuitive user experience.
 
-![VibrantSheets Preview](https://github.com/fighting58/VibrantSheets/raw/master/preview.png) *(Note: Add a real preview image later)*
-
 ## ✨ Key Features (Implemented)
 
 ### 🎨 Premium UI/UX
@@ -22,11 +20,18 @@ VibrantSheets is a modern, high-performance, and visually stunning web-based spr
 - **Smart Clipboard**: Custom TSV parser handles quoted cells and multi-line data from Excel/Google Sheets perfectly.
 - **Escape Support**: `Esc` key cancels ongoing edits and reverts to original content.
 
-### 🎨 Style & Format (New!)
-- **Ribbon Toolbar**: Professional SVG icons for **Bold**, *Italic*, <u>Underline</u>, and ~~Strikethrough~~.
+### 🎨 Style & Format
+- **Ribbon Toolbar**: Professional SVG icons for **Bold**, *Italic*, Underline, and Strikethrough.
 - **Color Palettes**: Native color pickers for Foreground (Text) and Background (Fill) customization.
 - **Alignment**: Standard Left, Center, and Right horizontal alignment controls.
 - **✨ IME Optimized**: A sophisticated 'Always-Editable' model that guarantees flawless Korean (and other multi-byte) input by maintaining composition context from the first keystroke.
+
+### 🗂️ Table Operations (New in Phase 6!)
+- **Insert Row**: Inserts a blank row above the selected cell — all data and styles below shift down automatically.
+- **Delete Row**: Removes the selected row(s) — data merges upward with a custom in-app confirmation modal.
+- **Insert Column**: Inserts a blank column to the left of the selected cell — all data shifts right.
+- **Delete Column**: Removes the selected column(s) — data and styles merge leftward.
+- **Data Integrity**: All keys in `data` and `cellStyles` are recalculated on every insert/delete to maintain full consistency.
 
 ### 📋 File & Data Management
 - **Persistent FileHandle**: Maintains file linkage to allow one-click **"Save" (Overwrite)** after permissions.
@@ -41,15 +46,16 @@ VibrantSheets is a modern, high-performance, and visually stunning web-based spr
 
 ---
 
-## 🚀 Roadmap (Upcoming Implementation)
+## 🚀 Roadmap
 
 - [x] **Phase 5: Styling System & IME Fix** ✅
     - Toolbar for Bold, Italic, Underline, Strikethrough, and Colors.
     - Advanced 'Always-Editable' logic for perfect Korean input.
-- [ ] **Phase 6: Table Operations** ⬅️ **Next Step**
-    - Insert/Delete Rows and Columns.
-    - Dynamic resizing and coordinate re-calculation.
-- [ ] **Phase 7: Advanced Data Formatting**
+- [x] **Phase 6: Table Operations** ✅
+    - Insert/Delete Rows and Columns via Ribbon toolbar.
+    - Dynamic data shifting engine with full style preservation.
+    - Custom in-app confirmation modal (replaces browser `confirm()`).
+- [ ] **Phase 7: Advanced Data Formatting** ⬅️ **Next Step**
     - Support for Currency, Percentage, Date, and Decimal control.
 - [ ] **Phase 8: Formula Engine Core**
     - Implementation of a robust formula parser.
