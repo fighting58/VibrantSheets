@@ -22,7 +22,13 @@ VibrantSheets is a modern, high-performance, and visually stunning web-based spr
 - **Smart Clipboard**: Custom TSV parser handles quoted cells and multi-line data from Excel/Google Sheets perfectly.
 - **Escape Support**: `Esc` key cancels ongoing edits and reverts to original content.
 
-### 📋 File & Data Management (Save & Save As)
+### 🎨 Style & Format (New!)
+- **Ribbon Toolbar**: Professional SVG icons for **Bold**, *Italic*, <u>Underline</u>, and ~~Strikethrough~~.
+- **Color Palettes**: Native color pickers for Foreground (Text) and Background (Fill) customization.
+- **Alignment**: Standard Left, Center, and Right horizontal alignment controls.
+- **✨ IME Optimized**: A sophisticated 'Always-Editable' model that guarantees flawless Korean (and other multi-byte) input by maintaining composition context from the first keystroke.
+
+### 📋 File & Data Management
 - **Persistent FileHandle**: Maintains file linkage to allow one-click **"Save" (Overwrite)** after permissions.
 - **Save As...**: Export to multiple formats including **.vsht**, **.xlsx**, and **.csv**.
 - **.vsht Format**: High-fidelity custom JSON format preserving data, column widths, and row heights.
