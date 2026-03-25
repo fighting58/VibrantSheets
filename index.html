@@ -6,8 +6,8 @@
     <title>VibrantSheets - Premium Spreadsheet</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;600&display=swap" rel="stylesheet">
-    <!-- SheetJS for Excel (.xlsx) support -->
-    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <!-- ExcelJS for Excel (.xlsx) support -->
+    <script src="https://unpkg.com/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
 <body class="dark-mode">
     <div id="app">
@@ -51,14 +51,14 @@
                 </div>
                 <div class="divider"></div>
                 <div class="group">
-                    <div class="color-picker-wrapper" title="Text Color">
+                    <label class="color-picker-wrapper" title="Text Color" for="text-color">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:2px"><polyline points="4 20 20 20"/><path d="M17 13l-5-8-5 8"/><path d="M6 13h12"/></svg>
                         <input type="color" id="text-color" value="#ffffff">
-                    </div>
-                    <div class="color-picker-wrapper" title="Fill Color">
+                    </label>
+                    <label class="color-picker-wrapper" title="Fill Color" for="bg-color">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:2px"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/></svg>
                         <input type="color" id="bg-color" value="#1e1e1e">
-                    </div>
+                    </label>
                 </div>
                 <div class="group">
                     <select id="font-family" class="tool-select">
@@ -67,6 +67,18 @@
                         <option value="Outfit">Outfit</option>
                     </select>
                     <input type="number" id="font-size" value="12" class="tool-input">
+                </div>
+                <div class="divider"></div>
+                <div class="group" title="Number Format">
+                    <select id="format-type" class="tool-select">
+                        <option value="general">General</option>
+                        <option value="currency">Currency (KRW)</option>
+                        <option value="percentage">Percentage</option>
+                        <option value="date">Date</option>
+                    </select>
+                    <button class="tool-btn tool-btn-text" id="btn-decimal-decrease" title="Decrease Decimal">-</button>
+                    <input type="number" id="format-decimals" value="2" min="0" max="10" class="tool-input decimal-input">
+                    <button class="tool-btn tool-btn-text" id="btn-decimal-increase" title="Increase Decimal">+</button>
                 </div>
                 <div class="divider"></div>
                 <div class="group">
@@ -79,6 +91,17 @@
                     <button class="tool-btn" id="btn-align-right" title="Align Right">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="10" x2="7" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="7" y2="18"/></svg>
                     </button>
+                </div>
+                <div class="divider"></div>
+                <div class="group" title="Find / Replace">
+                    <input type="text" id="find-input" class="tool-input find-input" placeholder="Find">
+                    <input type="text" id="replace-input" class="tool-input find-input" placeholder="Replace">
+                    <label class="tool-checkbox"><input type="checkbox" id="find-case">Aa</label>
+                    <label class="tool-checkbox"><input type="checkbox" id="find-exact">=</label>
+                    <button class="tool-btn tool-btn-text" id="btn-find-prev" title="Previous">◀</button>
+                    <button class="tool-btn tool-btn-text" id="btn-find-next" title="Next">▶</button>
+                    <button class="tool-btn tool-btn-text" id="btn-replace" title="Replace">R</button>
+                    <button class="tool-btn tool-btn-text" id="btn-replace-all" title="Replace All">All</button>
                 </div>
                 <div class="divider"></div>
                 <div class="group">
@@ -148,6 +171,7 @@
             </div>
         </div>
     </div>
+    <script src="formula_engine.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

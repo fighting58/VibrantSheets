@@ -1,83 +1,77 @@
-# VibrantSheets 📊
+# VibrantSheets
 
-VibrantSheets is a modern, high-performance, and visually stunning web-based spreadsheet application built with Vanilla JavaScript and CSS. It features a premium Glassmorphism design with a dark mode aesthetic, focusing on a smooth and intuitive user experience.
+VibrantSheets는 Vanilla JavaScript/CSS로 만든 웹 기반 스프레드시트 앱입니다.  
+빠른 그리드 상호작용, 리본 UI, 파일 입출력, 데이터 포맷팅을 중심으로 Excel 스타일 경험을 제공합니다.
 
-## ✨ Key Features (Implemented)
+## 주요 기능
 
-### 🎨 Premium UI/UX
-- **Modern Design**: Glassmorphism-based ribbon menu and formula bar.
-- **Dark Mode**: Sleek, eye-friendly dark theme optimized for productivity.
-- **Micro-interactions**: Subtle animations, resize guides, and real-time status updates.
+### 1) Grid & Interaction
+- Ready / Edit / Enter 모드 편집
+- 무한 스크롤 기반 동적 행 추가
+- 범위 선택(드래그, Shift 확장), Fill Handle
+- 고급 TSV 파서 기반 복사/붙여넣기
+- `Esc`로 편집 취소, `F2`로 셀 편집 진입
 
-### ⌨️ Advanced Grid Interaction (Excel-Style)
-- **Ready/Edit/Enter Modes**: 
-    - **Ready**: Standard navigation (Arrow keys).
-    - **Edit**: Refine content (`F2` or Double-click) with internal cursor.
-    - **Enter**: Immediate overwriting mode when typing while selected.
-- **Infinite Scroll**: High-performance lazy loading via dynamic row appending.
-- **Precision Selection**: Dedicated 3px thick selection overlays for clear visual feedback.
-- **Fill Handle**: Bidirectional fill handle for copying and pattern extension.
-- **Smart Clipboard**: Custom TSV parser handles quoted cells and multi-line data from Excel/Google Sheets perfectly.
-- **Escape Support**: `Esc` key cancels ongoing edits and reverts to original content.
+### 2) 스타일링
+- 굵게/기울임/밑줄/취소선
+- 텍스트 색 / 배경 색
+- 정렬(좌/중/우), 폰트/크기
+- IME(한글 입력) 친화 편집 흐름
 
-### 🎨 Style & Format
-- **Ribbon Toolbar**: Professional SVG icons for **Bold**, *Italic*, Underline, and Strikethrough.
-- **Color Palettes**: Native color pickers for Foreground (Text) and Background (Fill) customization.
-- **Alignment**: Standard Left, Center, and Right horizontal alignment controls.
-- **✨ IME Optimized**: A sophisticated 'Always-Editable' model that guarantees flawless Korean (and other multi-byte) input by maintaining composition context from the first keystroke.
+### 3) 행/열 작업
+- 행/열 삽입 및 삭제
+- 삭제 확인 모달
+- 데이터/스타일/포맷 키 재계산으로 일관성 유지
 
-### 🗂️ Table Operations (New in Phase 6!)
-- **Insert Row**: Inserts a blank row above the selected cell — all data and styles below shift down automatically.
-- **Delete Row**: Removes the selected row(s) — data merges upward with a custom in-app confirmation modal.
-- **Insert Column**: Inserts a blank column to the left of the selected cell — all data shifts right.
-- **Delete Column**: Removes the selected column(s) — data and styles merge leftward.
-- **Data Integrity**: All keys in `data` and `cellStyles` are recalculated on every insert/delete to maintain full consistency.
+### 4) 선택 기능
+- 열/행 헤더 클릭: 해당 열/행 전체 선택
+- `Shift + 헤더 클릭`: 연속 다중 선택
+- 헤더 드래그: 연속 범위 확장
+- 코너 헤더 클릭: 전체 선택
 
-### 📋 File & Data Management
-- **Persistent FileHandle**: Maintains file linkage to allow one-click **"Save" (Overwrite)** after permissions.
-- **Save As...**: Export to multiple formats including **.vsht**, **.xlsx**, and **.csv**.
-- **.vsht Format**: High-fidelity custom JSON format preserving data, column widths, and row heights.
-- **Excel (.xlsx) Integration**: Native binary import and export powered by **SheetJS**.
-- **Deluxe CSV Support**: Smart parser for multi-line cells and UTF-8 BOM encoding for perfect Excel compatibility.
+### 5) 데이터 포맷팅 (Phase 7)
+- General / Currency(KRW) / Percentage / Date
+- 소수점 자리수 증감(+/-) 및 직접 입력
+- `raw value` 저장 + `display value` 렌더링 분리
+- `.vsht` 저장/불러오기 시 포맷 메타데이터 유지
 
-### 📏 Grid Customization
-- **Independent Resizing**: Drag the edges of row/column headers to customize grid dimensions without affecting neighboring cells.
-- **Status Indicator**: Real-time "Edited" (Yellow) and "Saved" (Green) badge to track document state.
+### 6) 다중 시트
+- 시트 추가/삭제/이름 변경/이동(드래그)
+- 활성 시트 전환 및 독립 데이터/스타일 유지
 
----
+### 7) 찾기/바꾸기
+- 전체 시트 검색/치환
+- 옵션: 대소문자 구분, 정확히 일치
+- 결과 하이라이트 및 순차 이동
 
-## 🚀 Roadmap
+### 8) 함수 엔진(간단 버전)
+- `SUM`, `CONCAT`, `LEFT`, `RIGHT`, `MID`
+- 셀 참조/범위(`A1:A5`) 지원
+- 순환 참조 감지(`#CYCLE`)
 
-- [x] **Phase 5: Styling System & IME Fix** ✅
-    - Toolbar for Bold, Italic, Underline, Strikethrough, and Colors.
-    - Advanced 'Always-Editable' logic for perfect Korean input.
-- [x] **Phase 6: Table Operations** ✅
-    - Insert/Delete Rows and Columns via Ribbon toolbar.
-    - Dynamic data shifting engine with full style preservation.
-    - Custom in-app confirmation modal (replaces browser `confirm()`).
-- [ ] **Phase 7: Advanced Data Formatting** ⬅️ **Next Step**
-    - Support for Currency, Percentage, Date, and Decimal control.
-- [ ] **Phase 8: Formula Engine Core**
-    - Implementation of a robust formula parser.
-    - A1/B2 style cell reference evaluation.
-- [ ] **Phase 9: Built-in Functions**
-    - `SUM`, `AVG`, `COUNT`, `MIN`, `MAX` and Range (`B2:C10`) support.
-- [ ] **Phase 10: Persistence & Recovery**
-    - `localStorage` auto-save to prevent data loss.
-    - Recent files management and session recovery.
+### 9) 파일 입출력
+- Save / Save As (`File System Access API`)
+- `.vsht`, `.xlsx`, `.csv` 지원
+- CSV는 **활성 시트만** 저장 (확인 모달)
 
-## 🛠️ Tech Stack
-- **Language**: Vanilla JavaScript (ES6+)
-- **Styling**: Vanilla CSS (Premium Glassmorphism Design System)
-- **Libraries**: [SheetJS (xlsx.full.min.js)](https://sheetjs.com/) for binary Excel support.
-- **API**: Modern **File System Access API** for native OS-level file operations.
-- **Optimization**: Dynamic DOM Row Management (Infinite Scroll).
+## 로드맵
 
----
+- [x] Find/Replace
+- [x] Multi-Sheet
+- [x] Simple Formula Engine
+- [ ] Phase 8: Formula Engine Core (확장)
+- [ ] Phase 9: Built-in Functions
+- [ ] Phase 10: Persistence & Recovery
 
-## 📖 How to Run
-Simply open `index.html` in any modern web browser. 
-*Note: For the full 'Save As' experience, use a Chromium-based browser (Chrome, Edge).*
+## 기술 스택
+- Language: Vanilla JavaScript (ES6+)
+- Styling: Vanilla CSS
+- Library: ExcelJS (XLSX 입출력)
+- API: File System Access API
+
+## 실행 방법
+`index.html`을 최신 브라우저에서 열면 실행됩니다.  
+파일 저장/불러오기 경험은 Chromium 계열(Chrome, Edge)에서 가장 안정적입니다.
 
 ---
-**Developed with ❤️ by [fighting58](https://github.com/fighting58)**
+Developed by [fighting58](https://github.com/fighting58)

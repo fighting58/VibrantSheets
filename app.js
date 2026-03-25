@@ -1,18 +1,22 @@
 class VibrantSheets {
     constructor() {
-        this.rows = 50;
-        this.cols = 26; // A to Z
+        this.baseRows = 50;
+        this.baseCols = 26; // A to Z
         this.selectedCell = null;
-        this.data = {}; // Store cell data here: { 'A1': 'value' }
         this.isDirty = false;
         this.fileHandle = null; // Current working file handle
         this.isEditing = false; // State: Ready (false) vs Edit (true)
         this.originalValue = ""; // Backup for Esc key (cancel edit)
+        this.needsOverwrite = false; // Enter mode overwrite flag
+        this.isComposing = false; // IME composition state
         
         // Range selection state
         this.selectionRange = null; // { startCol, startRow, endCol, endRow }
         this.isSelecting = false;
         this.selectionAnchor = null; // Cell ID where selection started
+        this.isHeaderSelecting = false;
+        this.headerSelectType = null; // 'row' | 'col'
+        this.headerSelectionAnchor = null; // { type, index }
 
         // Fill handle state
         this.isFilling = false;
@@ -25,22 +29,127 @@ class VibrantSheets {
         this.cutRange = null;
 
         // Resize state
-        this.colWidths = new Array(this.cols).fill(100); // Default 100px per column
-        this.rowHeights = new Array(this.rows + 1).fill(25); // Default 25px per row (1-indexed)
         this.isResizingCol = false;
         this.isResizingRow = false;
         this.resizeIndex = -1;
         this.resizeStartPos = 0;
         this.resizeStartSize = 0;
 
-        this.cellStyles = {}; // Mapping cellId -> { fontWeight, fontStyle, textDecoration, color, backgroundColor, textAlign, fontSize, fontFamily }
+        this.sheets = [this.createSheet('Sheet1')];
+        this.activeSheetIndex = 0;
+        this.findState = {
+            query: '',
+            replace: '',
+            matchCase: false,
+            exact: false,
+            matches: [],
+            currentIndex: -1
+        };
+        this.csvConfirmInProgress = false;
+        this.xlsxStyleWarnInProgress = false;
+        this.sheetClickTimer = null;
+        this.formulaEngine = typeof FormulaEngine !== 'undefined' ? new FormulaEngine() : null;
+        this.formulaCache = new Map();
         this.init();
+    }
+
+    async confirmCsvSingleSheet() {
+        if (this.sheets.length <= 1) return true;
+        if (this.csvConfirmInProgress) return false;
+        this.csvConfirmInProgress = true;
+        const proceed = await this.showConfirmAsync(
+            'CSV는 활성 시트만 저장할 수 있습니다. 전체 시트를 저장하려면 다른 형식을 선택하세요. 계속 저장할까요?'
+        );
+        this.csvConfirmInProgress = false;
+        return proceed;
+    }
+
+    hasAnyStyles() {
+        return this.sheets.some(sheet => Object.keys(sheet.cellStyles || {}).length > 0);
+    }
+
+    async confirmXlsxStyleWarning() {
+        return true;
+    }
+
+    get activeSheet() {
+        return this.sheets[this.activeSheetIndex];
+    }
+
+    get rows() {
+        return this.activeSheet.rows;
+    }
+
+    set rows(value) {
+        this.activeSheet.rows = value;
+    }
+
+    get cols() {
+        return this.activeSheet.cols;
+    }
+
+    set cols(value) {
+        this.activeSheet.cols = value;
+    }
+
+    get data() {
+        return this.activeSheet.data;
+    }
+
+    set data(value) {
+        this.activeSheet.data = value;
+    }
+
+    get cellStyles() {
+        return this.activeSheet.cellStyles;
+    }
+
+    set cellStyles(value) {
+        this.activeSheet.cellStyles = value;
+    }
+
+    get cellFormats() {
+        return this.activeSheet.cellFormats;
+    }
+
+    set cellFormats(value) {
+        this.activeSheet.cellFormats = value;
+    }
+
+    get colWidths() {
+        return this.activeSheet.colWidths;
+    }
+
+    set colWidths(value) {
+        this.activeSheet.colWidths = value;
+    }
+
+    get rowHeights() {
+        return this.activeSheet.rowHeights;
+    }
+
+    set rowHeights(value) {
+        this.activeSheet.rowHeights = value;
+    }
+
+    createSheet(name) {
+        return {
+            name,
+            rows: this.baseRows,
+            cols: this.baseCols,
+            data: {},
+            cellStyles: {},
+            cellFormats: {},
+            colWidths: new Array(this.baseCols).fill(100),
+            rowHeights: new Array(this.baseRows + 1).fill(25)
+        };
     }
 
     init() {
         this.container = document.getElementById('grid-container');
         this.formulaInput = document.getElementById('formula-input');
         this.cellAddress = document.getElementById('selected-cell-id');
+        this.sheetTabs = document.querySelector('.sheet-tabs');
         
         // Create Selection & Resize Visuals
         this.selectionOverlay = this.createOverlay('selection-overlay');
@@ -49,6 +158,7 @@ class VibrantSheets {
         this.resizeGuide = this.createOverlay('resize-guide');
 
         this.renderGrid();
+        this.renderSheetTabs();
         this.setupEventListeners();
     }
 
@@ -90,6 +200,215 @@ class VibrantSheets {
         return document.querySelector(`[data-id="${id}"]`);
     }
 
+    getRawValue(cellId) {
+        const val = this.data[cellId];
+        return val === undefined || val === null ? '' : String(val);
+    }
+
+    setRawValue(cellId, value) {
+        this.data[cellId] = value === undefined || value === null ? '' : String(value);
+    }
+
+    getRawValueForSheet(sheet, cellId) {
+        const val = sheet.data[cellId];
+        return val === undefined || val === null ? '' : String(val);
+    }
+
+    setRawValueForSheet(sheet, cellId, value) {
+        sheet.data[cellId] = value === undefined || value === null ? '' : String(value);
+    }
+
+    getDefaultDecimalsByType(type) {
+        if (type === 'currency' || type === 'percentage') return 2;
+        return null;
+    }
+
+    normalizeDecimals(decimals) {
+        if (decimals === null || decimals === undefined || decimals === '') return null;
+        const n = Number(decimals);
+        if (!Number.isFinite(n)) return null;
+        return Math.max(0, Math.min(10, Math.round(n)));
+    }
+
+    normalizeFormat(format) {
+        const type = ['general', 'currency', 'percentage', 'date'].includes(format?.type) ? format.type : 'general';
+        let decimals = this.normalizeDecimals(format?.decimals);
+        if (decimals === null) decimals = this.getDefaultDecimalsByType(type);
+        if (type === 'date') decimals = null;
+        return { type, decimals };
+    }
+
+    isDefaultFormat(format) {
+        return format.type === 'general' && format.decimals === null;
+    }
+
+    getCellFormat(cellId) {
+        const stored = this.cellFormats[cellId] || {};
+        return this.normalizeFormat(stored);
+    }
+
+    getCellFormatForSheet(sheet, cellId) {
+        const stored = sheet.cellFormats[cellId] || {};
+        return this.normalizeFormat(stored);
+    }
+
+    setCellFormat(cellId, format) {
+        const normalized = this.normalizeFormat(format);
+        if (this.isDefaultFormat(normalized)) {
+            delete this.cellFormats[cellId];
+        } else {
+            this.cellFormats[cellId] = normalized;
+        }
+    }
+
+    parseNumberFromRaw(rawValue, type = 'general') {
+        if (rawValue === null || rawValue === undefined) return null;
+        const text = String(rawValue).trim();
+        if (!text) return null;
+
+        const normalized = text.replace(/,/g, '').replace(/\s+/g, '');
+        const hasPercentSign = normalized.includes('%');
+        const cleaned = normalized.replace(/[^0-9.\-+]/g, '');
+        if (!cleaned || cleaned === '-' || cleaned === '+' || cleaned === '.' || cleaned === '-.' || cleaned === '+.') {
+            return null;
+        }
+        const parsed = Number(cleaned);
+        if (!Number.isFinite(parsed)) return null;
+
+        if (type === 'percentage' && hasPercentSign) return parsed / 100;
+        return parsed;
+    }
+
+    formatDate(rawValue) {
+        if (rawValue === null || rawValue === undefined) return '';
+        const text = String(rawValue).trim();
+        if (!text) return '';
+        const dt = new Date(text);
+        if (Number.isNaN(dt.getTime())) return String(rawValue);
+        return dt.toLocaleDateString('ko-KR');
+    }
+
+    parseDateFromRaw(rawValue) {
+        if (rawValue === null || rawValue === undefined) return null;
+        const text = String(rawValue).trim();
+        if (!text) return null;
+        const dt = new Date(text);
+        if (Number.isNaN(dt.getTime())) return null;
+        return dt;
+    }
+
+    toExcelDateSerial(dateObj) {
+        const excelEpoch = Date.UTC(1899, 11, 30);
+        const utc = Date.UTC(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+        return (utc - excelEpoch) / 86400000;
+    }
+
+    fromExcelDateSerial(serial) {
+        if (!Number.isFinite(serial)) return null;
+        const excelEpoch = Date.UTC(1899, 11, 30);
+        const utcMillis = excelEpoch + Math.round(serial * 86400000);
+        const dt = new Date(utcMillis);
+        if (Number.isNaN(dt.getTime())) return null;
+        const yyyy = dt.getUTCFullYear();
+        const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+        const dd = String(dt.getUTCDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+    }
+
+    getFormattedValue(cellId, rawValue) {
+        if (rawValue === null || rawValue === undefined) return '';
+        let raw = String(rawValue);
+        if (this.formulaEngine && raw.trim().startsWith('=')) {
+            raw = String(this.formulaEngine.evaluate(raw, this.getFormulaContext(), new Set()));
+        }
+        if (!raw) return '';
+
+        const format = this.getCellFormat(cellId);
+        const decimals = format.decimals ?? 0;
+
+        if (format.type === 'date') {
+            return this.formatDate(raw);
+        }
+
+        const numeric = this.parseNumberFromRaw(raw, format.type);
+        if (numeric === null) return raw;
+
+        if (format.type === 'currency') {
+            return new Intl.NumberFormat('ko-KR', {
+                style: 'currency',
+                currency: 'KRW',
+                minimumFractionDigits: decimals,
+                maximumFractionDigits: decimals
+            }).format(numeric);
+        }
+
+        if (format.type === 'percentage') {
+            return new Intl.NumberFormat('ko-KR', {
+                minimumFractionDigits: decimals,
+                maximumFractionDigits: decimals
+            }).format(numeric * 100) + '%';
+        }
+
+        if (format.decimals !== null) {
+            return new Intl.NumberFormat('ko-KR', {
+                minimumFractionDigits: decimals,
+                maximumFractionDigits: decimals
+            }).format(numeric);
+        }
+
+        return raw;
+    }
+
+    renderCellValue(cell) {
+        if (!cell || !cell.dataset?.id) return;
+        const cellId = cell.dataset.id;
+        let rawValue = this.getRawValue(cellId);
+        if (this.formulaEngine && rawValue.trim().startsWith('=')) {
+            rawValue = String(this.formulaEngine.evaluate(rawValue, this.getFormulaContext(), new Set()));
+        }
+        cell.innerText = this.getFormattedValue(cellId, rawValue);
+    }
+
+    getFormulaContext() {
+        return {
+            getCellValue: (cellId, stack) => {
+                const key = cellId.toUpperCase();
+                const safeStack = stack || new Set();
+                if (safeStack.has(key)) return '#CYCLE';
+                if (this.formulaCache.has(key)) return this.formulaCache.get(key);
+
+                safeStack.add(key);
+                const val = this.getRawValue(key);
+                let result = val;
+                if (val.trim().startsWith('=') && this.formulaEngine) {
+                    result = this.formulaEngine.evaluate(val, this.getFormulaContext(), safeStack);
+                }
+                safeStack.delete(key);
+                this.formulaCache.set(key, result);
+                return result;
+            },
+            getRangeValues: (range, stack) => {
+                const [start, end] = range.split(':');
+                if (!start || !end) return [];
+                const a = this.parseCellId(start);
+                const b = this.parseCellId(end);
+                const values = [];
+                for (let r = Math.min(a.row, b.row); r <= Math.max(a.row, b.row); r++) {
+                    for (let c = Math.min(a.colNum, b.colNum); c <= Math.max(a.colNum, b.colNum); c++) {
+                        const id = `${this.numberToCol(c)}${r}`;
+                        values.push(this.getFormulaContext().getCellValue(id, stack));
+                    }
+                }
+                return values;
+            }
+        };
+    }
+
+    renderCellById(cellId) {
+        const cell = document.querySelector(`[data-id="${cellId}"]`);
+        if (cell) this.renderCellValue(cell);
+    }
+
     // ─── Grid Rendering ────────────────────────────────────
     renderGrid() {
         const table = document.createElement('table');
@@ -113,6 +432,12 @@ class VibrantSheets {
         const headerRow = document.createElement('tr');
         const emptyHeader = document.createElement('th');
         emptyHeader.className = 'cell header row-header corner-header';
+        emptyHeader.addEventListener('mousedown', (e) => {
+            if (this.isNearResizeEdge(emptyHeader, e, 'corner')) return;
+            e.preventDefault();
+            this.selectAll();
+            this.headerSelectionAnchor = null;
+        });
         headerRow.appendChild(emptyHeader);
         
         for (let j = 0; j < this.cols; j++) {
@@ -120,6 +445,8 @@ class VibrantSheets {
             th.className = 'cell header col-header';
             th.innerText = String.fromCharCode(65 + j);
             th.dataset.colIndex = j;
+            th.addEventListener('mousedown', (e) => this.handleHeaderMouseDown('col', j + 1, e));
+            th.addEventListener('mouseover', () => this.handleHeaderMouseOver('col', j + 1));
             headerRow.appendChild(th);
         }
         table.appendChild(headerRow);
@@ -142,6 +469,8 @@ class VibrantSheets {
             rowHeader.className = 'cell header row-header';
             rowHeader.innerText = i;
             rowHeader.dataset.rowIndex = i;
+            rowHeader.addEventListener('mousedown', (e) => this.handleHeaderMouseDown('row', i, e));
+            rowHeader.addEventListener('mouseover', () => this.handleHeaderMouseOver('row', i));
             tr.appendChild(rowHeader);
             
             for (let j = 0; j < this.cols; j++) {
@@ -152,12 +481,12 @@ class VibrantSheets {
                 const cellId = `${this.numberToCol(j + 1)}${i}`;
                 td.dataset.id = cellId;
                 
-                if (this.data[cellId]) {
-                    td.innerText = this.data[cellId];
-                }
+                this.renderCellValue(td);
                 
                 td.addEventListener('focus', () => this.handleCellFocus(td));
                 td.addEventListener('input', () => this.handleCellInput(td));
+                td.addEventListener('compositionstart', () => this.handleCompositionStart(td));
+                td.addEventListener('compositionend', () => this.handleCompositionEnd(td));
                 td.addEventListener('blur', () => this.handleCellBlur(td));
                 td.addEventListener('keydown', (e) => this.handleKeyDown(e));
                 td.addEventListener('mousedown', (e) => this.handleCellMouseDown(td, e));
@@ -203,6 +532,35 @@ class VibrantSheets {
         document.getElementById('font-family').addEventListener('change', (e) => this.applyStyle('fontFamily', e.target.value));
         document.getElementById('font-size').addEventListener('input', (e) => this.applyStyle('fontSize', e.target.value + 'pt'));
 
+        // Phase 7: Data formatting
+        document.getElementById('format-type').addEventListener('change', (e) => {
+            const selectedType = e.target.value;
+            this.applyFormat({ type: selectedType });
+        });
+        document.getElementById('format-decimals').addEventListener('change', (e) => {
+            this.applyFormat({ decimals: e.target.value });
+        });
+        document.getElementById('btn-decimal-decrease').addEventListener('click', () => this.adjustDecimals(-1));
+        document.getElementById('btn-decimal-increase').addEventListener('click', () => this.adjustDecimals(1));
+
+        // Find / Replace
+        this.findInput = document.getElementById('find-input');
+        this.replaceInput = document.getElementById('replace-input');
+        this.findCase = document.getElementById('find-case');
+        this.findExact = document.getElementById('find-exact');
+
+        const refreshFind = () => this.updateFindResults();
+        this.findInput.addEventListener('input', refreshFind);
+        this.replaceInput.addEventListener('input', () => {
+            this.findState.replace = this.replaceInput.value || '';
+        });
+        this.findCase.addEventListener('change', refreshFind);
+        this.findExact.addEventListener('change', refreshFind);
+        document.getElementById('btn-find-prev').addEventListener('click', () => this.gotoFindMatch(-1));
+        document.getElementById('btn-find-next').addEventListener('click', () => this.gotoFindMatch(1));
+        document.getElementById('btn-replace').addEventListener('click', () => this.replaceCurrentMatch());
+        document.getElementById('btn-replace-all').addEventListener('click', () => this.replaceAllMatches());
+
         // File Dialog buttons
         document.getElementById('btn-open').addEventListener('click', () => this.openFileDialog());
         document.getElementById('btn-save').addEventListener('click', () => this.saveFile());
@@ -231,8 +589,17 @@ class VibrantSheets {
         // Formula bar input
         this.formulaInput.addEventListener('input', (e) => {
             if (this.selectedCell) {
-                this.selectedCell.innerText = e.target.value;
-                this.data[this.selectedCell.dataset.id] = e.target.value;
+                const id = this.selectedCell.dataset.id;
+                const rawValue = e.target.value;
+                this.setRawValue(id, rawValue);
+                if (this.isEditing) {
+                    this.selectedCell.innerText = rawValue;
+                } else {
+                    this.renderCellValue(this.selectedCell);
+                }
+                this.markDirty();
+                this.updateItemCount();
+                this.refreshFindIfActive();
             }
         });
 
@@ -258,6 +625,9 @@ class VibrantSheets {
             if (this.isResizingCol || this.isResizingRow) {
                 this.handleResizeEnd(e);
                 return;
+            }
+            if (this.isHeaderSelecting) {
+                this.endHeaderSelection();
             }
             if (this.isSelecting) {
                 this.endRangeSelection();
@@ -327,6 +697,158 @@ class VibrantSheets {
 
         // Resize Handlers
         this.setupResizeHandlers();
+    }
+
+    renderSheetTabs() {
+        if (!this.sheetTabs) return;
+        this.sheetTabs.innerHTML = '';
+
+        this.sheets.forEach((sheet, index) => {
+            const btn = document.createElement('button');
+            btn.className = 'sheet-tab' + (index === this.activeSheetIndex ? ' active' : '');
+            btn.dataset.index = index;
+            const label = document.createElement('span');
+            label.className = 'sheet-tab-label';
+            label.textContent = sheet.name || `Sheet${index + 1}`;
+            btn.appendChild(label);
+
+            const closeBtn = document.createElement('span');
+            closeBtn.className = 'sheet-tab-close';
+            closeBtn.textContent = '×';
+            closeBtn.title = 'Delete sheet';
+            closeBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.deleteSheet(index);
+            });
+            btn.appendChild(closeBtn);
+            btn.addEventListener('click', () => {
+                if (this.sheetClickTimer) clearTimeout(this.sheetClickTimer);
+                this.sheetClickTimer = setTimeout(() => {
+                    this.switchSheet(index);
+                }, 200);
+            });
+            btn.addEventListener('dblclick', (e) => {
+                e.preventDefault();
+                if (this.sheetClickTimer) clearTimeout(this.sheetClickTimer);
+                this.startSheetRename(label, index);
+            });
+            btn.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                this.deleteSheet(index);
+            });
+
+            btn.draggable = true;
+            btn.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', String(index));
+            });
+            btn.addEventListener('dragover', (e) => e.preventDefault());
+            btn.addEventListener('drop', (e) => {
+                e.preventDefault();
+                const from = Number(e.dataTransfer.getData('text/plain'));
+                const to = index;
+                this.moveSheet(from, to);
+            });
+
+            this.sheetTabs.appendChild(btn);
+        });
+
+        const addBtn = document.createElement('button');
+        addBtn.className = 'sheet-tab add-btn';
+        addBtn.textContent = '+';
+        addBtn.addEventListener('click', () => this.addSheet());
+        this.sheetTabs.appendChild(addBtn);
+    }
+
+    addSheet() {
+        const name = `Sheet${this.sheets.length + 1}`;
+        this.sheets.push(this.createSheet(name));
+        this.switchSheet(this.sheets.length - 1);
+    }
+
+    startSheetRename(tabEl, index) {
+        const sheet = this.sheets[index];
+        if (!sheet || !tabEl) return;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = sheet.name || `Sheet${index + 1}`;
+        input.className = 'sheet-rename-input';
+
+        tabEl.textContent = '';
+        tabEl.appendChild(input);
+        input.focus();
+        input.select();
+
+        const finish = (commit) => {
+            const raw = input.value || '';
+            const nextName = commit ? raw.trim() : sheet.name;
+            sheet.name = nextName || `Sheet${index + 1}`;
+            this.renderSheetTabs();
+        };
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                finish(true);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                finish(false);
+            }
+        });
+        input.addEventListener('blur', () => finish(true));
+    }
+
+    async deleteSheet(index) {
+        if (this.sheets.length <= 1) {
+            alert('At least one sheet is required.');
+            return;
+        }
+        const sheet = this.sheets[index];
+        if (!sheet) return;
+        const proceed = await this.showConfirmAsync(`"${sheet.name || `Sheet${index + 1}`}" 시트를 삭제할까요?`);
+        if (!proceed) return;
+
+        this.sheets.splice(index, 1);
+        if (this.activeSheetIndex >= this.sheets.length) {
+            this.activeSheetIndex = this.sheets.length - 1;
+        }
+        this.switchSheet(this.activeSheetIndex);
+    }
+
+    moveSheet(from, to) {
+        if (from === to || from < 0 || to < 0 || from >= this.sheets.length || to >= this.sheets.length) return;
+        const [sheet] = this.sheets.splice(from, 1);
+        this.sheets.splice(to, 0, sheet);
+
+        if (this.activeSheetIndex === from) {
+            this.activeSheetIndex = to;
+        } else if (from < this.activeSheetIndex && to >= this.activeSheetIndex) {
+            this.activeSheetIndex -= 1;
+        } else if (from > this.activeSheetIndex && to <= this.activeSheetIndex) {
+            this.activeSheetIndex += 1;
+        }
+
+        this.renderSheetTabs();
+    }
+
+    switchSheet(index) {
+        if (index < 0 || index >= this.sheets.length) return;
+        if (this.isEditing) this.exitEditMode(true);
+
+        this.activeSheetIndex = index;
+        this.selectedCell = null;
+        this.selectionRange = null;
+        this.selectionAnchor = null;
+
+        this.refreshGridUI();
+        this.renderSheetTabs();
+        this.updateItemCount();
+
+        const cell = this.getCellEl(1, 1);
+        if (cell) {
+            cell.focus({ preventScroll: true });
+            this.handleCellFocus(cell);
+        }
     }
 
     // ─── Resize Handlers ─────────────────────────────────
@@ -504,8 +1026,9 @@ class VibrantSheets {
         this.selectedCell = cell;
         const cellId = cell.dataset.id;
         this.cellAddress.innerText = cellId;
-        this.formulaInput.value = cell.innerText;
-        this.highlightHeaders(cell);
+        this.formulaInput.value = this.getRawValue(cellId);
+        const { colNum, row } = this.parseCellId(cellId);
+        this.highlightHeaders(this.selectionRange || { startCol: colNum, endCol: colNum, startRow: row, endRow: row });
         this.updateSelectionOverlay();
         this.scrollToVisible(cell);
         this.updateToolbarState(cell);
@@ -574,8 +1097,39 @@ class VibrantSheets {
             }
         });
 
-        this.setDirty(true);
+        this.markDirty();
         if (this.selectedCell) this.updateToolbarState(this.selectedCell);
+    }
+
+    applyFormat(partialFormat) {
+        const targetIds = this.getSelectionTargetIds();
+        if (targetIds.length === 0) return;
+
+        targetIds.forEach((id) => {
+            const current = this.getCellFormat(id);
+            const merged = { ...current, ...partialFormat };
+            this.setCellFormat(id, merged);
+
+            if (!(this.isEditing && this.selectedCell && this.selectedCell.dataset.id === id)) {
+                this.renderCellById(id);
+            }
+        });
+
+        if (this.selectedCell) {
+            this.formulaInput.value = this.getRawValue(this.selectedCell.dataset.id);
+            this.updateToolbarState(this.selectedCell);
+        }
+        this.markDirty();
+    }
+
+    adjustDecimals(delta) {
+        if (!this.selectedCell) return;
+        const current = this.getCellFormat(this.selectedCell.dataset.id);
+        if (current.type === 'date') return;
+
+        const base = current.decimals ?? this.getDefaultDecimalsByType(current.type) ?? 0;
+        const next = Math.max(0, Math.min(10, base + delta));
+        this.applyFormat({ decimals: next });
     }
 
     getSelectionTargetIds() {
@@ -597,6 +1151,7 @@ class VibrantSheets {
     updateToolbarState(cell) {
         const id = cell.dataset.id;
         const style = this.cellStyles[id] || {};
+        const format = this.getCellFormat(id);
 
         // Helper to toggle active class
         const setBtnActive = (btnId, isActive) => {
@@ -621,6 +1176,15 @@ class VibrantSheets {
         // Font dropdowns
         if (style.fontFamily) document.getElementById('font-family').value = style.fontFamily;
         if (style.fontSize) document.getElementById('font-size').value = parseInt(style.fontSize);
+
+        // Data format controls
+        const formatType = document.getElementById('format-type');
+        const decimalsInput = document.getElementById('format-decimals');
+        if (formatType) formatType.value = format.type;
+        if (decimalsInput) {
+            decimalsInput.value = format.decimals ?? '';
+            decimalsInput.disabled = format.type === 'date';
+        }
     }
 
     renderStyles(cell) {
@@ -649,17 +1213,24 @@ class VibrantSheets {
         document.querySelectorAll('.cell.header.active').forEach(h => h.classList.remove('active'));
     }
 
-    highlightHeaders(cell) {
+    highlightHeaders(range) {
         this.clearHighlights();
-        const cellId = cell.dataset.id;
-        const col = cellId.match(/[A-Z]+/)[0];
-        const row = cellId.match(/\d+/)[0];
+        if (!range) return;
 
-        const colHeader = Array.from(document.querySelectorAll('.cell.header')).find(h => h.innerText === col);
-        if (colHeader) colHeader.classList.add('active');
+        for (let c = range.startCol; c <= range.endCol; c++) {
+            const colHeader = this.table?.querySelector(`.col-header[data-col-index="${c - 1}"]`);
+            if (colHeader) colHeader.classList.add('active');
+        }
 
-        const rowHeader = Array.from(document.querySelectorAll('.cell.row-header')).find(h => h.innerText === row);
-        if (rowHeader) rowHeader.classList.add('active');
+        for (let r = range.startRow; r <= range.endRow; r++) {
+            const rowHeader = this.table?.querySelector(`.row-header[data-row-index="${r}"]`);
+            if (rowHeader) rowHeader.classList.add('active');
+        }
+
+        if (range.startCol === 1 && range.endCol === this.cols && range.startRow === 1 && range.endRow === this.rows) {
+            const corner = this.table?.querySelector('.corner-header');
+            if (corner) corner.classList.add('active');
+        }
     }
 
     handleCellInput(cell) {
@@ -672,10 +1243,33 @@ class VibrantSheets {
         }
         
         const cellId = cell.dataset.id;
-        this.data[cellId] = cell.innerText;
-        this.formulaInput.value = cell.innerText;
+        this.setRawValue(cellId, cell.innerText);
+        this.formulaInput.value = this.getRawValue(cellId);
         this.markDirty();
         this.updateItemCount();
+        this.refreshFindIfActive();
+        this.formulaCache.clear();
+    }
+
+    handleCompositionStart(cell) {
+        this.isComposing = true;
+        if (!this.isEditing) {
+            // Enter edit mode for IME without overwrite selection.
+            this.prepareEnterMode(cell, false);
+        }
+        this.needsOverwrite = false;
+        // Ensure no selection remains that could be replaced on space.
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.selectNodeContents(cell);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+
+    handleCompositionEnd(cell) {
+        this.isComposing = false;
+        // Input event will sync data; keep this for state clarity.
     }
 
     handleCellBlur(cell) {
@@ -709,7 +1303,211 @@ class VibrantSheets {
         }
     }
 
+    updateFindResults() {
+        const query = this.findInput ? this.findInput.value : '';
+        const replace = this.replaceInput ? this.replaceInput.value : '';
+        const matchCase = this.findCase ? this.findCase.checked : false;
+        const exact = this.findExact ? this.findExact.checked : false;
+
+        this.findState.query = query;
+        this.findState.replace = replace;
+        this.findState.matchCase = matchCase;
+        this.findState.exact = exact;
+
+        this.clearFindHighlights();
+
+        if (!query) {
+            this.findState.matches = [];
+            this.findState.currentIndex = -1;
+            return;
+        }
+
+        const target = matchCase ? query : query.toLowerCase();
+        const matches = [];
+
+        for (const key in this.data) {
+            const rawValue = this.getRawValue(key);
+            if (!rawValue) continue;
+            const hay = matchCase ? rawValue : rawValue.toLowerCase();
+            const isMatch = exact ? hay === target : hay.includes(target);
+            if (isMatch) matches.push(key);
+        }
+
+        matches.sort((a, b) => {
+            const pa = this.parseCellId(a);
+            const pb = this.parseCellId(b);
+            if (pa.row !== pb.row) return pa.row - pb.row;
+            return pa.colNum - pb.colNum;
+        });
+
+        this.findState.matches = matches;
+        if (this.findState.currentIndex >= matches.length) {
+            this.findState.currentIndex = matches.length - 1;
+        }
+        if (matches.length === 0) {
+            this.findState.currentIndex = -1;
+        }
+
+        this.applyFindHighlights();
+    }
+
+    refreshFindIfActive() {
+        if (this.findState.query) {
+            this.updateFindResults();
+        }
+    }
+
+    clearFindHighlights() {
+        document.querySelectorAll('.cell.match').forEach(cell => cell.classList.remove('match'));
+    }
+
+    applyFindHighlights() {
+        this.findState.matches.forEach((cellId) => {
+            const cell = this.getCellEl(cellId.match(/[A-Z]+/)[0], parseInt(cellId.match(/\d+/)[0]));
+            if (cell) cell.classList.add('match');
+        });
+    }
+
+    selectFindMatch(index) {
+        const cellId = this.findState.matches[index];
+        if (!cellId) return;
+        const { colNum, row } = this.parseCellId(cellId);
+        const cell = this.getCellEl(colNum, row);
+        if (!cell) return;
+
+        this.clearRangeSelection();
+        this.setSelectionRange(colNum, row, colNum, row);
+        cell.focus({ preventScroll: true });
+        this.handleCellFocus(cell);
+        this.updateRangeVisual();
+        this.updateFillHandlePosition();
+    }
+
+    gotoFindMatch(direction) {
+        const total = this.findState.matches.length;
+        if (total === 0) return;
+
+        let nextIndex = this.findState.currentIndex + direction;
+        if (nextIndex < 0) nextIndex = total - 1;
+        if (nextIndex >= total) nextIndex = 0;
+
+        this.findState.currentIndex = nextIndex;
+        this.selectFindMatch(nextIndex);
+    }
+
+    replaceCurrentMatch() {
+        const idx = this.findState.currentIndex;
+        if (idx < 0) return;
+        const cellId = this.findState.matches[idx];
+        if (!cellId) return;
+
+        const rawValue = this.getRawValue(cellId);
+        const updated = this.replaceInValue(rawValue);
+        this.setRawValue(cellId, updated);
+        this.renderCellById(cellId);
+        this.markDirty();
+        this.updateItemCount();
+        this.updateFindResults();
+    }
+
+    replaceAllMatches() {
+        if (this.findState.matches.length === 0) return;
+        this.findState.matches.forEach((cellId) => {
+            const rawValue = this.getRawValue(cellId);
+            const updated = this.replaceInValue(rawValue);
+            this.setRawValue(cellId, updated);
+            this.renderCellById(cellId);
+        });
+        this.markDirty();
+        this.updateItemCount();
+        this.updateFindResults();
+    }
+
+    replaceInValue(rawValue) {
+        const query = this.findState.query || '';
+        if (!query) return rawValue;
+
+        const replaceValue = this.findState.replace || '';
+        if (this.findState.exact) {
+            const a = this.findState.matchCase ? rawValue : rawValue.toLowerCase();
+            const b = this.findState.matchCase ? query : query.toLowerCase();
+            return a === b ? replaceValue : rawValue;
+        }
+
+        const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const flags = this.findState.matchCase ? 'g' : 'gi';
+        const re = new RegExp(escaped, flags);
+        return rawValue.replace(re, replaceValue);
+    }
+
     // ─── Range Selection ───────────────────────────────────
+    isNearResizeEdge(headerEl, e, type) {
+        const EDGE_ZONE = 5;
+        const rect = headerEl.getBoundingClientRect();
+        if (type === 'col') {
+            return e.clientX >= rect.right - EDGE_ZONE || e.clientX <= rect.left + EDGE_ZONE;
+        }
+        if (type === 'row') {
+            return e.clientY >= rect.bottom - EDGE_ZONE;
+        }
+        return e.clientX >= rect.right - EDGE_ZONE || e.clientY >= rect.bottom - EDGE_ZONE;
+    }
+
+    handleHeaderMouseDown(type, index, e) {
+        if (this.isResizingCol || this.isResizingRow) return;
+        if (this.isNearResizeEdge(e.currentTarget, e, type)) return;
+
+        e.preventDefault();
+
+        if (this.isEditing) {
+            this.exitEditMode(true);
+        }
+
+        this.isHeaderSelecting = true;
+        this.headerSelectType = type;
+
+        if (!e.shiftKey || !this.headerSelectionAnchor || this.headerSelectionAnchor.type !== type) {
+            this.headerSelectionAnchor = { type, index };
+        }
+
+        const anchorIndex = (e.shiftKey && this.headerSelectionAnchor.type === type)
+            ? this.headerSelectionAnchor.index
+            : index;
+
+        this.selectHeaderRange(type, anchorIndex, index);
+    }
+
+    handleHeaderMouseOver(type, index) {
+        if (!this.isHeaderSelecting || this.headerSelectType !== type || !this.headerSelectionAnchor) return;
+        this.selectHeaderRange(type, this.headerSelectionAnchor.index, index);
+    }
+
+    endHeaderSelection() {
+        this.isHeaderSelecting = false;
+        this.headerSelectType = null;
+        this.updateFillHandlePosition();
+    }
+
+    selectHeaderRange(type, startIndex, endIndex) {
+        if (type === 'col') {
+            this.setSelectionRange(startIndex, 1, endIndex, this.rows);
+        } else {
+            this.setSelectionRange(1, startIndex, this.cols, endIndex);
+        }
+
+        const focusCol = type === 'col' ? Math.min(startIndex, endIndex) : 1;
+        const focusRow = type === 'row' ? Math.min(startIndex, endIndex) : 1;
+        const focusCell = this.getCellEl(focusCol, focusRow);
+        if (focusCell) {
+            this.selectedCell = focusCell;
+            this.cellAddress.innerText = focusCell.dataset.id;
+            this.formulaInput.value = this.getRawValue(focusCell.dataset.id);
+        }
+
+        this.updateRangeVisual();
+        this.updateFillHandlePosition();
+    }
+
     handleCellMouseDown(cell, e) {
         // Don't start selection if clicking fill handle
         if (e.target.classList.contains('fill-handle')) return;
@@ -790,10 +1588,17 @@ class VibrantSheets {
 
         if (!this.selectionRange) {
             if (this.rangeOverlay) this.rangeOverlay.style.display = 'none';
+            if (this.selectedCell) {
+                const { colNum, row } = this.parseCellId(this.selectedCell.dataset.id);
+                this.highlightHeaders({ startCol: colNum, endCol: colNum, startRow: row, endRow: row });
+            } else {
+                this.clearHighlights();
+            }
             return;
         }
 
         const { startCol, startRow, endCol, endRow } = this.selectionRange;
+        this.highlightHeaders(this.selectionRange);
         const isSingleCell = (startCol === endCol && startRow === endRow);
 
         // Only show range visual for multi-cell selection
@@ -970,8 +1775,8 @@ class VibrantSheets {
         for (let r = startRow; r <= endRow; r++) {
             const rowVals = [];
             for (let c = startCol; c <= endCol; c++) {
-                const cell = this.getCellEl(c, r);
-                rowVals.push(cell ? cell.innerText : '');
+                const cellId = `${this.numberToCol(c)}${r}`;
+                rowVals.push(this.getRawValue(cellId));
             }
             sourceValues.push(rowVals);
         }
@@ -989,8 +1794,8 @@ class VibrantSheets {
                     const value = sourceValues[srcRowIdx][srcColIdx];
                     const cell = this.getCellEl(c, r);
                     if (cell) {
-                        cell.innerText = value;
-                        this.data[cell.dataset.id] = value;
+                        this.setRawValue(cell.dataset.id, value);
+                        this.renderCellValue(cell);
                     }
                 }
             }
@@ -1006,12 +1811,16 @@ class VibrantSheets {
                     const value = sourceValues[srcRowIdx][srcColIdx];
                     const cell = this.getCellEl(c, r);
                     if (cell) {
-                        cell.innerText = value;
-                        this.data[cell.dataset.id] = value;
+                        this.setRawValue(cell.dataset.id, value);
+                        this.renderCellValue(cell);
                     }
                 }
             }
         }
+
+        this.markDirty();
+        this.updateItemCount();
+        this.refreshFindIfActive();
     }
 
     // ─── Clipboard ─────────────────────────────────────────
@@ -1113,8 +1922,8 @@ class VibrantSheets {
                     const cell = this.getCellEl(targetColNum, targetRow);
                     if (cell) {
                         const val = rowsData[r][c] || '';
-                        cell.innerText = val;
-                        this.data[cell.dataset.id] = val;
+                        this.setRawValue(cell.dataset.id, val);
+                        this.renderCellValue(cell);
                     }
                 }
             }
@@ -1127,8 +1936,8 @@ class VibrantSheets {
                 for (let c = startCol; c <= endCol; c++) {
                     const cell = this.getCellEl(c, r);
                     if (cell) {
-                        cell.innerText = '';
-                        this.data[cell.dataset.id] = '';
+                        this.setRawValue(cell.dataset.id, '');
+                        this.renderCellValue(cell);
                     }
                 }
             }
@@ -1210,8 +2019,8 @@ class VibrantSheets {
             for (let c = startCol; c <= endCol; c++) {
                 const cell = this.getCellEl(c, r);
                 if (cell) {
-                    cell.innerText = '';
-                    this.data[cell.dataset.id] = '';
+                    this.setRawValue(cell.dataset.id, '');
+                    this.renderCellValue(cell);
                     changed = true;
                 }
             }
@@ -1219,6 +2028,8 @@ class VibrantSheets {
         if (changed) {
             this.markDirty();
             this.updateItemCount();
+            this.refreshFindIfActive();
+            this.formulaCache.clear();
         }
     }
 
@@ -1280,9 +2091,13 @@ class VibrantSheets {
         // If in Ready mode (not editing)
         // Check for direct typing (start overwriting)
         if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
-            // Already editable due to focus() set, so we just toggle state and select all for overwrite
-            this.prepareEnterMode(activeCell); 
-            // DO NOT e.preventDefault() -> Let the browser insert the first char/IME composition
+            const isImeKey = e.isComposing || e.key === 'Process' || e.key === 'Unidentified';
+            if (isImeKey) {
+                // Avoid enter-mode here; let IME composition start on the focused cell.
+                return;
+            }
+            this.prepareEnterMode(activeCell, true);
+            // DO NOT e.preventDefault() -> Let the browser insert the first char
             return;
         }
 
@@ -1364,9 +2179,13 @@ class VibrantSheets {
                     }
                 }
                 // Single cell delete
-                activeCell.innerText = '';
-                this.data[activeCell.dataset.id] = '';
+                this.setRawValue(activeCell.dataset.id, '');
+                this.renderCellValue(activeCell);
+                this.formulaInput.value = '';
+                this.markDirty();
                 this.updateItemCount();
+                this.refreshFindIfActive();
+                this.formulaCache.clear();
                 break;
         }
 
@@ -1385,10 +2204,13 @@ class VibrantSheets {
     // ─── Mode Handlers ─────────────────────────────────────
     enterEditMode(cell) {
         if (this.isEditing) return;
+        const cellId = cell.dataset.id;
         this.isEditing = true;
-        this.originalValue = cell.innerText;
+        this.needsOverwrite = false;
+        this.originalValue = this.getRawValue(cellId);
         cell.contentEditable = true;
         cell.classList.add('editing');
+        cell.innerText = this.originalValue;
         cell.focus();
         
         // Move cursor to end
@@ -1400,19 +2222,31 @@ class VibrantSheets {
         sel.addRange(range);
     }
 
-    prepareEnterMode(cell) {
+    prepareEnterMode(cell, overwrite = true) {
         if (this.isEditing) return;
+        const cellId = cell.dataset.id;
         this.isEditing = true;
-        this.originalValue = cell.innerText;
+        this.originalValue = this.getRawValue(cellId);
+        this.needsOverwrite = overwrite;
         
         cell.classList.add('editing');
-        
-        // Select all text in the cell so the next keystroke replaces it (Overwrite behavior)
-        const range = document.createRange();
-        const sel = window.getSelection();
-        range.selectNodeContents(cell);
-        sel.removeAllRanges();
-        sel.addRange(range);
+        cell.innerText = this.originalValue;
+        if (overwrite) {
+            // Select all text in the cell so the next keystroke replaces it (Overwrite behavior)
+            const range = document.createRange();
+            const sel = window.getSelection();
+            range.selectNodeContents(cell);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        } else {
+            // Place caret at end for IME-friendly composition
+            const range = document.createRange();
+            const sel = window.getSelection();
+            range.selectNodeContents(cell);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
         
         this.markDirty();
     }
@@ -1429,11 +2263,12 @@ class VibrantSheets {
         if (!this.isEditing || !this.selectedCell) return;
         
         const cell = this.selectedCell;
+        const cellId = cell.dataset.id;
         if (!commit) {
-            cell.innerText = this.originalValue;
+            this.setRawValue(cellId, this.originalValue);
         } else {
-            this.data[cell.dataset.id] = cell.innerText;
-            this.formulaInput.value = cell.innerText;
+            this.setRawValue(cellId, cell.innerText);
+            this.formulaInput.value = this.getRawValue(cellId);
             this.markDirty();
             this.updateItemCount();
         }
@@ -1441,6 +2276,9 @@ class VibrantSheets {
         cell.contentEditable = false;
         cell.classList.remove('editing');
         this.isEditing = false;
+        this.needsOverwrite = false;
+        this.renderCellValue(cell);
+        this.formulaInput.value = this.getRawValue(cellId);
         cell.focus(); // Keep focus for Ready mode navigation
     }
 
@@ -1500,7 +2338,7 @@ class VibrantSheets {
             targetCell.focus();
             this.selectedCell = targetCell;
             this.cellAddress.innerText = targetCell.dataset.id;
-            this.formulaInput.value = targetCell.innerText;
+            this.formulaInput.value = this.getRawValue(targetCell.dataset.id);
         }
     }
 
@@ -1554,10 +2392,10 @@ class VibrantSheets {
         const extension = file.name.split('.').pop().toLowerCase();
         const reader = new FileReader();
 
-        reader.onload = (event) => {
+        reader.onload = async (event) => {
             try {
                 if (extension === 'xlsx' || extension === 'xls') {
-                    this.importXLSX(event.target.result);
+                    await this.importXLSX(event.target.result);
                 } else if (extension === 'vsht') {
                     this.importVSHT(event.target.result);
                 } else {
@@ -1590,50 +2428,93 @@ class VibrantSheets {
         this.clearAllData(false);
 
         // Restore Metadata
-        if (doc.colWidths) this.colWidths = doc.colWidths;
-        if (doc.rowHeights) this.rowHeights = doc.rowHeights;
-        this.data = doc.data || {};
-        this.cellStyles = doc.cellStyles || {};
+        if (doc.sheets && Array.isArray(doc.sheets) && doc.sheets.length > 0) {
+            this.sheets = doc.sheets.map((sheet, idx) => ({
+                name: sheet.name || `Sheet${idx + 1}`,
+                rows: sheet.rows || this.baseRows,
+                cols: sheet.cols || this.baseCols,
+                data: sheet.data || {},
+                cellStyles: sheet.cellStyles || {},
+                cellFormats: sheet.cellFormats || {},
+                colWidths: sheet.colWidths || new Array(this.baseCols).fill(100),
+                rowHeights: sheet.rowHeights || new Array(this.baseRows + 1).fill(25)
+            }));
+            this.activeSheetIndex = Math.min(Math.max(doc.activeSheetIndex || 0, 0), this.sheets.length - 1);
+        } else {
+            if (doc.colWidths) this.colWidths = doc.colWidths;
+            if (doc.rowHeights) this.rowHeights = doc.rowHeights;
+            this.data = doc.data || {};
+            this.cellStyles = doc.cellStyles || {};
+            this.cellFormats = doc.cellFormats || {};
+        }
 
         // Re-render or Refresh UI
         this.refreshGridUI();
+        this.renderSheetTabs();
         
         this.updateItemCount();
         this.markClean();
     }
 
     // 2. .xlsx Import (using SheetJS)
-    importXLSX(buffer) {
-        if (typeof XLSX === 'undefined') {
+    async importXLSX(buffer) {
+        return this.importXLSXExcelJS(buffer);
+    }
+
+    async importXLSXExcelJS(buffer) {
+        if (typeof ExcelJS === 'undefined') {
             alert('Excel 라이브러리를 불러오지 못했습니다. 네트워크 연결을 확인해 주세요.');
             return;
         }
 
-        const workbook = XLSX.read(buffer, { type: 'array' });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        
-        // Convert to 2D array
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(buffer);
 
-        this.clearAllData(false);
-        
-        jsonData.forEach((row, i) => {
-            row.forEach((cellValue, j) => {
-                const cellId = `${this.numberToCol(j + 1)}${i + 1}`;
-                const val = cellValue === null || cellValue === undefined ? '' : String(cellValue);
-                this.data[cellId] = val;
+        this.sheets = [];
+        workbook.eachSheet((worksheet, sheetIndex) => {
+            const name = worksheet.name || `Sheet${sheetIndex}`;
+            const sheet = this.createSheet(name);
 
-                // Attempt to extract styles from worksheet cell object
-                const cellRef = XLSX.utils.encode_cell({ r: i, c: j });
-                const wsCell = worksheet[cellRef];
-                if (wsCell && wsCell.s) {
-                    this.mapXlsxStyleToInternal(cellId, wsCell.s);
-                }
+            sheet.rows = Math.max(this.baseRows, worksheet.rowCount || 0);
+            sheet.cols = Math.max(this.baseCols, worksheet.columnCount || 0);
+            sheet.colWidths = new Array(sheet.cols).fill(100);
+            sheet.rowHeights = new Array(sheet.rows + 1).fill(25);
+
+            worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+                row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+                    const cellId = `${this.numberToCol(colNumber)}${rowNumber}`;
+                    let raw = '';
+
+                    if (cell.type === ExcelJS.ValueType.Formula) {
+                        raw = '=' + cell.formula;
+                    } else if (cell.type === ExcelJS.ValueType.Date && cell.value instanceof Date) {
+                        const yyyy = cell.value.getFullYear();
+                        const mm = String(cell.value.getMonth() + 1).padStart(2, '0');
+                        const dd = String(cell.value.getDate()).padStart(2, '0');
+                        raw = `${yyyy}-${mm}-${dd}`;
+                    } else {
+                        raw = cell.value === null || cell.value === undefined ? '' : String(cell.value);
+                    }
+
+                    this.setRawValueForSheet(sheet, cellId, raw);
+                    if (cell.numFmt) {
+                        sheet.cellFormats[cellId] = this.getExceljsFormatFromNumFmt(cell.numFmt, cell.type);
+                    }
+                    if (cell.font || cell.alignment || cell.fill) {
+                        this.mapExceljsStyleToSheet(sheet, cellId, cell);
+                    }
+                });
             });
+
+            this.sheets.push(sheet);
         });
 
+        if (this.sheets.length === 0) {
+            this.sheets = [this.createSheet('Sheet1')];
+        }
+        this.activeSheetIndex = 0;
         this.refreshGridUI();
+        this.renderSheetTabs();
         this.updateItemCount();
         this.markClean();
     }
@@ -1711,7 +2592,7 @@ class VibrantSheets {
             this.rows = rowNum;
         }
         const cellId = `${this.numberToCol(colNum)}${rowNum}`;
-        this.data[cellId] = value;
+        this.setRawValue(cellId, value);
     }
 
     refreshGridUI() {
@@ -1733,6 +2614,7 @@ class VibrantSheets {
             this.updateSelectionOverlay();
             this.updateRangeVisual();
             this.updateFillHandlePosition();
+            this.refreshFindIfActive();
         }
     }
 
@@ -1753,13 +2635,19 @@ class VibrantSheets {
         }
 
         try {
-            const fileName = this.fileHandle.name;
+            const fileName = (this.fileHandle && this.fileHandle.name) ? String(this.fileHandle.name) : '';
+            const lowerName = fileName.toLowerCase();
+            if (lowerName.endsWith('.csv')) {
+                if (!await this.confirmCsvSingleSheet()) return;
+            }
+
             const writable = await this.fileHandle.createWritable();
-            
-            if (fileName.endsWith('.xlsx')) {
-                const buffer = this.generateXLSXBuffer();
-                await writable.write(buffer);
-            } else if (fileName.endsWith('.csv')) {
+
+            if (lowerName.endsWith('.xlsx')) {
+                if (!await this.confirmXlsxStyleWarning()) return;
+                const buffer = await this.generateXLSXBufferExcelJS();
+                if (buffer) await writable.write(buffer);
+            } else if (lowerName.endsWith('.csv')) {
                 const csvContent = this.generateCSVContent();
                 await writable.write(csvContent);
             } else {
@@ -1812,29 +2700,100 @@ class VibrantSheets {
             }
         } else {
             // Legacy Fallback (Download .vsht)
-            const vshtData = this.generateVSHTData();
-            const blob = new Blob([JSON.stringify(vshtData, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `${defaultName}.vsht`;
-            link.click();
-            URL.revokeObjectURL(url);
-            this.markClean();
+            const ext = (defaultName.split('.').pop() || '').toLowerCase();
+            if (ext !== 'csv') {
+                const vshtData = this.generateVSHTData();
+                const blob = new Blob([JSON.stringify(vshtData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${defaultName}.vsht`;
+                link.click();
+                URL.revokeObjectURL(url);
+                this.markClean();
+            }
         }
     }
+
 
     generateVSHTData() {
         return {
             version: "1.0",
             title: document.querySelector('.filename')?.innerText || 'Untitled',
-            data: this.data,
-            colWidths: this.colWidths,
-            rowHeights: this.rowHeights,
-            cellStyles: this.cellStyles,
-            rows: this.rows,
-            cols: this.cols
+            sheets: this.sheets.map(sheet => ({
+                name: sheet.name,
+                rows: sheet.rows,
+                cols: sheet.cols,
+                data: sheet.data,
+                colWidths: sheet.colWidths,
+                rowHeights: sheet.rowHeights,
+                cellStyles: sheet.cellStyles,
+                cellFormats: sheet.cellFormats
+            })),
+            activeSheetIndex: this.activeSheetIndex
         };
+    }
+
+    getUsedRangeForSheet(sheet) {
+        let maxRow = 0;
+        let maxCol = 0;
+        const scan = (key) => {
+            const { colNum, row } = this.parseCellId(key);
+            maxRow = Math.max(maxRow, row);
+            maxCol = Math.max(maxCol, colNum);
+        };
+        Object.keys(sheet.data || {}).forEach(scan);
+        Object.keys(sheet.cellStyles || {}).forEach(scan);
+        Object.keys(sheet.cellFormats || {}).forEach(scan);
+        return { maxRow, maxCol };
+    }
+
+    async generateXLSXBufferExcelJS() {
+        if (typeof ExcelJS === 'undefined') {
+            alert('Excel 라이브러리를 불러오지 못했습니다. 네트워크 연결을 확인해 주세요.');
+            return null;
+        }
+
+        const wb = new ExcelJS.Workbook();
+        this.sheets.forEach((sheet, index) => {
+            const ws = wb.addWorksheet(sheet.name || `Sheet${index + 1}`);
+            const { maxRow, maxCol } = this.getUsedRangeForSheet(sheet);
+
+            for (let r = 1; r <= maxRow; r++) {
+                for (let c = 1; c <= maxCol; c++) {
+                    const cellId = `${this.numberToCol(c)}${r}`;
+                    const rawValue = this.getRawValueForSheet(sheet, cellId);
+                    const format = this.getCellFormatForSheet(sheet, cellId);
+                    const numericValue = this.parseNumberFromRaw(rawValue, format.type);
+                    const dateValue = this.parseDateFromRaw(rawValue);
+
+                    const cell = ws.getCell(r, c);
+                    if (rawValue.trim().startsWith('=')) {
+                        const formula = rawValue.trim().slice(1);
+                        const result = this.formulaEngine
+                            ? this.formulaEngine.evaluate(rawValue, this.getFormulaContext(), new Set())
+                            : undefined;
+                        cell.value = { formula, result: result === '#ERROR' ? undefined : result };
+                    } else if (format.type === 'date' && dateValue) {
+                        cell.value = dateValue;
+                        cell.numFmt = 'yyyy-mm-dd';
+                    } else if (numericValue !== null && format.type !== 'date') {
+                        cell.value = numericValue;
+                        const numFmt = this.getNumFmtFromFormat(format);
+                        if (numFmt) cell.numFmt = numFmt;
+                    } else {
+                        cell.value = rawValue;
+                    }
+
+                    const style = sheet.cellStyles[cellId];
+                    if (style) {
+                        this.mapInternalStyleToExceljs(cell, style);
+                    }
+                }
+            }
+        });
+
+        return wb.xlsx.writeBuffer();
     }
 
     generateXLSXBuffer() {
@@ -1843,41 +2802,61 @@ class VibrantSheets {
             return null;
         }
 
-        // Find used range
-        let maxRow = 0, maxCol = 0;
-        for (const key in this.data) {
-            if (this.data[key] && this.data[key].trim() !== '') {
-                const { colNum, row } = this.parseCellId(key);
-                maxRow = Math.max(maxRow, row);
-                maxCol = Math.max(maxCol, colNum);
-            }
-        }
-
-        // Create 2D array for XLSX
-        const aoa = [];
-        for (let r = 1; r <= maxRow; r++) {
-            const rowArr = [];
-            for (let c = 1; c <= maxCol; c++) {
-                const cellId = `${this.numberToCol(c)}${r}`;
-                const cellValue = this.data[cellId] || '';
-                
-                // Create SheetJS cell object with style
-                const cellObj = { v: cellValue, t: 's' };
-                const style = this.cellStyles[cellId];
-                if (style) {
-                    cellObj.s = this.mapInternalStyleToXlsx(style);
-                }
-                rowArr.push(cellObj);
-            }
-            aoa.push(rowArr);
-        }
-
         const wb = XLSX.utils.book_new();
-        // Use aoa_to_sheet but we've provided objects instead of primitives
-        const ws = XLSX.utils.aoa_to_sheet(aoa);
-        XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+        this.sheets.forEach((sheet, index) => {
+            // Find used range
+            let maxRow = 0, maxCol = 0;
+            for (const key in sheet.data) {
+                if (sheet.data[key] && sheet.data[key].trim() !== '') {
+                    const { colNum, row } = this.parseCellId(key);
+                    maxRow = Math.max(maxRow, row);
+                    maxCol = Math.max(maxCol, colNum);
+                }
+            }
+
+            const aoa = [];
+            for (let r = 1; r <= maxRow; r++) {
+                const rowArr = [];
+                for (let c = 1; c <= maxCol; c++) {
+                    const cellId = `${this.numberToCol(c)}${r}`;
+                    const rawValue = this.getRawValueForSheet(sheet, cellId);
+                    const format = this.getCellFormatForSheet(sheet, cellId);
+                    const numericValue = this.parseNumberFromRaw(rawValue, format.type);
+                    const dateValue = this.parseDateFromRaw(rawValue);
+
+                    let cellObj = { v: rawValue, t: 's' };
+                    if (rawValue !== '') {
+                        if (format.type === 'date' && dateValue) {
+                            cellObj = { v: this.toExcelDateSerial(dateValue), t: 'n', z: 'yyyy-mm-dd' };
+                        } else if (format.type === 'currency' && numericValue !== null) {
+                            const d = format.decimals ?? 2;
+                            cellObj = { v: numericValue, t: 'n', z: `"₩"#,##0${d > 0 ? '.' + '0'.repeat(d) : ''}` };
+                        } else if (format.type === 'percentage' && numericValue !== null) {
+                            const d = format.decimals ?? 2;
+                            cellObj = { v: numericValue, t: 'n', z: `0${d > 0 ? '.' + '0'.repeat(d) : ''}%` };
+                        } else if (format.decimals !== null && numericValue !== null) {
+                            const d = format.decimals;
+                            cellObj = { v: numericValue, t: 'n', z: `#,##0${d > 0 ? '.' + '0'.repeat(d) : ''}` };
+                        } else if (numericValue !== null && /^\s*[+-]?\d+(\.\d+)?\s*$/.test(rawValue)) {
+                            cellObj = { v: numericValue, t: 'n' };
+                        }
+                    }
+
+                    const style = sheet.cellStyles[cellId];
+                    if (style) {
+                        cellObj.s = this.mapInternalStyleToXlsx(style);
+                    }
+                    rowArr.push(cellObj);
+                }
+                aoa.push(rowArr);
+            }
+
+            const ws = XLSX.utils.aoa_to_sheet(aoa);
+            const sheetName = sheet.name || `Sheet${index + 1}`;
+            XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        });
         
-        return XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+        return XLSX.write(wb, { type: 'array', bookType: 'xlsx', cellStyles: true });
     }
 
     generateCSVContent() {
@@ -1905,6 +2884,114 @@ class VibrantSheets {
             rows.push(rowFields.join(','));
         }
         return '\uFEFF' + rows.join('\r\n');
+    }
+
+    hexToArgb(hex) {
+        if (!hex) return null;
+        const clean = hex.replace('#', '').toUpperCase();
+        if (clean.length === 6) return 'FF' + clean;
+        if (clean.length === 8) return clean;
+        return null;
+    }
+
+    argbToHex(argb) {
+        if (!argb) return null;
+        const clean = String(argb).replace('#', '').toUpperCase();
+        if (clean.length === 8) return '#' + clean.slice(2);
+        if (clean.length === 6) return '#' + clean;
+        return null;
+    }
+
+    mapInternalStyleToExceljs(cell, style) {
+        const font = {};
+        if (style.fontWeight === 'bold') font.bold = true;
+        if (style.fontStyle === 'italic') font.italic = true;
+        if (style.textDecoration === 'underline') font.underline = true;
+        if (style.fontSize) font.size = parseInt(style.fontSize, 10);
+        if (style.fontFamily) font.name = style.fontFamily;
+        if (style.color) {
+            const argb = this.hexToArgb(style.color);
+            if (argb) font.color = { argb };
+        }
+        if (Object.keys(font).length > 0) cell.font = font;
+
+        if (style.textAlign) {
+            cell.alignment = { horizontal: style.textAlign };
+        }
+
+        if (style.backgroundColor) {
+            const argb = this.hexToArgb(style.backgroundColor);
+            if (argb) {
+                cell.fill = {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb }
+                };
+            }
+        }
+    }
+
+    mapExceljsStyleToSheet(sheet, cellId, cell) {
+        const style = {};
+        const font = cell.font || {};
+        if (font.bold) style.fontWeight = 'bold';
+        if (font.italic) style.fontStyle = 'italic';
+        if (font.underline) style.textDecoration = 'underline';
+        if (font.size) style.fontSize = font.size + 'pt';
+        if (font.name) style.fontFamily = font.name;
+        if (font.color && font.color.argb) style.color = this.argbToHex(font.color.argb);
+
+        const alignment = cell.alignment || {};
+        if (alignment.horizontal) style.textAlign = alignment.horizontal;
+
+        const fill = cell.fill || {};
+        if (fill.fgColor && fill.fgColor.argb) {
+            style.backgroundColor = this.argbToHex(fill.fgColor.argb);
+        }
+
+        if (Object.keys(style).length > 0) {
+            sheet.cellStyles[cellId] = style;
+        }
+    }
+
+    getNumFmtFromFormat(format) {
+        if (format.type === 'currency') {
+            const d = format.decimals ?? 2;
+            return `"₩"#,##0${d > 0 ? '.' + '0'.repeat(d) : ''}`;
+        }
+        if (format.type === 'percentage') {
+            const d = format.decimals ?? 2;
+            return `0${d > 0 ? '.' + '0'.repeat(d) : ''}%`;
+        }
+        if (format.type === 'date') {
+            return 'yyyy-mm-dd';
+        }
+        if (format.decimals !== null) {
+            const d = format.decimals;
+            return `#,##0${d > 0 ? '.' + '0'.repeat(d) : ''}`;
+        }
+        return null;
+    }
+
+    getExceljsFormatFromNumFmt(numFmt, cellType) {
+        const formatCode = String(numFmt || '').toLowerCase();
+        let type = 'general';
+        let decimals = null;
+
+        if (formatCode.includes('%')) {
+            type = 'percentage';
+            decimals = this.extractDecimalPlacesFromFormat(formatCode);
+        } else if (/\b(y|m|d|h|s)+\b/.test(formatCode) || cellType === ExcelJS.ValueType.Date) {
+            type = 'date';
+            decimals = null;
+        } else if (formatCode.includes('[$') || formatCode.includes('₩') || formatCode.includes('$')) {
+            type = 'currency';
+            decimals = this.extractDecimalPlacesFromFormat(formatCode);
+        } else if (cellType === ExcelJS.ValueType.Number) {
+            decimals = this.extractDecimalPlacesFromFormat(formatCode);
+        }
+
+        return this.normalizeFormat({ type, decimals });
     }
 
     // ─── Style Mapping Helpers ─────────────────────────────
@@ -1946,6 +3033,75 @@ class VibrantSheets {
         }
     }
 
+    mapXlsxStyleToSheet(sheet, cellId, s) {
+        const style = {};
+        if (s.font) {
+            if (s.font.bold) style.fontWeight = 'bold';
+            if (s.font.italic) style.fontStyle = 'italic';
+            if (s.font.underline) style.textDecoration = 'underline';
+            if (s.font.color && s.font.color.rgb) style.color = '#' + s.font.color.rgb;
+        }
+        if (s.fill && s.fill.fgColor && s.fill.fgColor.rgb) {
+            style.backgroundColor = '#' + s.fill.fgColor.rgb;
+        }
+        if (s.alignment && s.alignment.horizontal) {
+            style.textAlign = s.alignment.horizontal;
+        }
+        if (Object.keys(style).length > 0) {
+            sheet.cellStyles[cellId] = style;
+        }
+    }
+
+    extractDecimalPlacesFromFormat(formatCode) {
+        if (!formatCode) return null;
+        const match = formatCode.match(/\.(0+|#+)/);
+        return match ? match[1].length : null;
+    }
+
+    getXlsxFormatFromCell(wsCell) {
+        const formatCode = String(wsCell.z || '').toLowerCase();
+        let type = 'general';
+        let decimals = null;
+
+        if (formatCode.includes('%')) {
+            type = 'percentage';
+            decimals = this.extractDecimalPlacesFromFormat(formatCode);
+        } else if (/\b[ymdhis]+\b/.test(formatCode) || wsCell.t === 'd') {
+            type = 'date';
+            decimals = null;
+        } else if (formatCode.includes('[$') || formatCode.includes('₩') || formatCode.includes('$')) {
+            type = 'currency';
+            decimals = this.extractDecimalPlacesFromFormat(formatCode);
+        } else if (wsCell.t === 'n') {
+            decimals = this.extractDecimalPlacesFromFormat(formatCode);
+        }
+
+        return this.normalizeFormat({ type, decimals });
+    }
+
+    mapXlsxFormatToInternal(cellId, wsCell) {
+        const formatCode = String(wsCell.z || '').toLowerCase();
+        let type = 'general';
+        let decimals = null;
+
+        if (formatCode.includes('%')) {
+            type = 'percentage';
+            decimals = this.extractDecimalPlacesFromFormat(formatCode);
+        } else if (/\b[ymdhis]+\b/.test(formatCode) || wsCell.t === 'd') {
+            type = 'date';
+            decimals = null;
+        } else if (formatCode.includes('[$') || formatCode.includes('₩') || formatCode.includes('$')) {
+            type = 'currency';
+            decimals = this.extractDecimalPlacesFromFormat(formatCode);
+        } else if (wsCell.t === 'n') {
+            decimals = this.extractDecimalPlacesFromFormat(formatCode);
+        }
+
+        if (type !== 'general' || decimals !== null) {
+            this.setCellFormat(cellId, { type, decimals });
+        }
+    }
+
     clearAllData(shouldMarkDirty = true) {
         if (this.tbody) {
             this.tbody.querySelectorAll('.cell').forEach(cell => {
@@ -1955,8 +3111,10 @@ class VibrantSheets {
         }
         this.data = {};
         this.cellStyles = {};
+        this.cellFormats = {};
         if (shouldMarkDirty) this.markDirty();
         this.updateItemCount();
+        this.refreshFindIfActive();
     }
 
     updateItemCount() {
@@ -2069,9 +3227,37 @@ class VibrantSheets {
         btnCancel.onclick = () => close();
     }
 
+    showConfirmAsync(message) {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('confirm-modal');
+            const msg = document.getElementById('confirm-message');
+            const btnOk = document.getElementById('confirm-ok');
+            const btnCancel = document.getElementById('confirm-cancel');
+
+            if (!modal) {
+                resolve(confirm(message));
+                return;
+            }
+
+            msg.textContent = message;
+            if (btnCancel) btnCancel.textContent = '취소';
+            if (btnOk) btnOk.textContent = '확인';
+            modal.style.display = 'flex';
+            const close = (result) => {
+                modal.style.display = 'none';
+                btnOk.onclick = null;
+                btnCancel.onclick = null;
+                resolve(result);
+            };
+            btnOk.onclick = () => close(true);
+            btnCancel.onclick = () => close(false);
+        });
+    }
+
     shiftData(type, threshold, delta) {
         const newData = {};
         const newStyles = {};
+        const newFormats = {};
 
         // Helper to shift a single coordinate
         const shiftCoord = (coord, t, d) => (coord >= t ? coord + d : coord);
@@ -2112,8 +3298,27 @@ class VibrantSheets {
             }
         }
 
+        // Process formats
+        for (const key in this.cellFormats) {
+            const { row, colNum } = this.parseCellId(key);
+            let nRow = row;
+            let nColNum = colNum;
+
+            if (type === 'row') {
+                nRow = shiftCoord(row, threshold, delta);
+            } else {
+                nColNum = shiftCoord(colNum, threshold, delta);
+            }
+
+            if (nRow > 0 && nColNum > 0) {
+                const newKey = `${this.numberToCol(nColNum)}${nRow}`;
+                newFormats[newKey] = this.cellFormats[key];
+            }
+        }
+
         this.data = newData;
         this.cellStyles = newStyles;
+        this.cellFormats = newFormats;
     }
 }
 
