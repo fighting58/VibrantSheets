@@ -10,6 +10,7 @@ VibrantSheets는 브라우저에서 동작하는 Excel 스타일 스프레드시
 - Ready / Edit / Enter 모드
 - 키보드 내비게이션(화살표, Enter, Tab, F2, Esc)
 - 범위 선택, Fill Handle, 고급 클립보드 붙여넣기
+- Fill Handle 고도화: 시리즈/복사, Alt 복사, 빈칸 스킵, 사용자 리스트
 
 ### 2.2 헤더 기반 선택
 - 열/행 헤더 클릭: 전체 선택
@@ -45,6 +46,9 @@ VibrantSheets는 브라우저에서 동작하는 Excel 스타일 스프레드시
 - `SUM`, `CONCAT`, `LEFT`, `RIGHT`, `MID`
 - 셀 참조/범위(`A1:A5`) 지원
 - 순환 참조 감지(`#CYCLE`)
+- 수식은 `cellFormulas`, 값은 `data`에 분리 저장
+- 에러 전파 규칙: 에러 포함 연산은 에러 반환
+- 절대/상대 참조 지원(`$A$1`, `A$1`, `$A1`)
 
 ### 2.9 파일 입출력
 - `.vsht`: 데이터/스타일/포맷/레이아웃 보존
@@ -62,7 +66,6 @@ VibrantSheets는 브라우저에서 동작하는 Excel 스타일 스프레드시
 ### Phase 8: Formula Engine Core (확장)
 - 수식 파서 토큰화/파싱 (`=A1+B2`, 괄호, 우선순위)
 - 셀 참조 평가 및 순환 참조 감지 고도화
-- 수식/값 분리 저장 모델 정리
 
 ### Phase 9: Built-in Functions
 - `SUM`, `AVG`, `COUNT`, `MIN`, `MAX`
@@ -71,8 +74,20 @@ VibrantSheets는 브라우저에서 동작하는 Excel 스타일 스프레드시
 ### Phase 10: Persistence & Recovery
 - `localStorage` 자동 저장
 - 세션 복구/최근 파일 목록
+- 사용자 정의 리스트 관리(로컬 저장)
 
 ## 5. 검증 체크리스트
 - 멀티 시트 저장/불러오기(XLSX) 시 스타일 유지
 - CSV 저장 시 활성 시트만 저장 + 확인 모달
 - 수식 범위/순환 참조 동작
+- 수식 엔진 단위 테스트
+- 수식 엔진 통합 테스트
+
+## 6. 함수 동작 규격(간단 버전)
+- 입력 타입: 숫자 문자열은 자동 변환, 비숫자는 문자열로 유지
+- 빈값: `""`, `null`, `undefined`는 빈 문자열 처리
+- Boolean: `TRUE/FALSE`, 숫자(0/1)를 논리값으로 해석
+- 에러 전파: 인자에 에러 포함 시 해당 에러 반환
+- 비교 연산: 숫자로 변환 가능하면 숫자 비교, 아니면 문자열 비교
+- 문자열 함수: `LEFT/RIGHT/MID`는 범위 밖이면 빈 문자열, `CONCAT`은 문자열 결합
+- 숫자 함수: `SUM/AVG/COUNT/MIN/MAX`는 숫자 변환 가능한 값만 계산

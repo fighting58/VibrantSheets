@@ -10,3 +10,7 @@ Thumbs.db
 .gemini/
 *.csv
 node_modules/
+test_formula_engine.js
+test_formula_integration.js
+test_ui_smoke.js
+test_ui_smoke.html

@@ -22,6 +22,9 @@ class VibrantSheets {
         this.isFilling = false;
         this.fillStartCell = null;
         this.lastFillTargetCell = null;
+        this.fillPreviewMode = 'series';
+        this.fillSkipBlanks = false;
+        this.customLists = this.loadCustomLists();
 
         // Clipboard state
         this.clipboardData = null; // 2D array of copied values
@@ -116,6 +119,14 @@ class VibrantSheets {
         this.activeSheet.cellFormats = value;
     }
 
+    get cellFormulas() {
+        return this.activeSheet.cellFormulas;
+    }
+
+    set cellFormulas(value) {
+        this.activeSheet.cellFormulas = value;
+    }
+
     get colWidths() {
         return this.activeSheet.colWidths;
     }
@@ -140,6 +151,7 @@ class VibrantSheets {
             data: {},
             cellStyles: {},
             cellFormats: {},
+            cellFormulas: {},
             colWidths: new Array(this.baseCols).fill(100),
             rowHeights: new Array(this.baseRows + 1).fill(25)
         };
@@ -156,6 +168,7 @@ class VibrantSheets {
         this.rangeOverlay = this.createOverlay('range-overlay');
         this.fillHandle = this.createOverlay('fill-handle');
         this.resizeGuide = this.createOverlay('resize-guide');
+        this.fillPreview = this.createOverlay('fill-preview');
 
         this.renderGrid();
         this.renderSheetTabs();
@@ -167,6 +180,9 @@ class VibrantSheets {
         div.className = className;
         div.style.display = 'none';
         this.container.appendChild(div);
+        if (className === 'fill-preview') {
+            div.innerHTML = '<span class="fill-preview-label">시리즈 채우기</span><span class="fill-preview-hint">Alt: 값 복사</span>';
+        }
         return div;
     }
 
@@ -201,21 +217,39 @@ class VibrantSheets {
     }
 
     getRawValue(cellId) {
+        const formula = this.cellFormulas[cellId];
+        if (formula) return '=' + formula;
         const val = this.data[cellId];
         return val === undefined || val === null ? '' : String(val);
     }
 
     setRawValue(cellId, value) {
-        this.data[cellId] = value === undefined || value === null ? '' : String(value);
+        const text = value === undefined || value === null ? '' : String(value);
+        if (text.trim().startsWith('=')) {
+            this.cellFormulas[cellId] = text.trim().slice(1);
+            delete this.data[cellId];
+        } else {
+            delete this.cellFormulas[cellId];
+            this.data[cellId] = text;
+        }
     }
 
     getRawValueForSheet(sheet, cellId) {
+        const formula = sheet.cellFormulas?.[cellId];
+        if (formula) return '=' + formula;
         const val = sheet.data[cellId];
         return val === undefined || val === null ? '' : String(val);
     }
 
     setRawValueForSheet(sheet, cellId, value) {
-        sheet.data[cellId] = value === undefined || value === null ? '' : String(value);
+        const text = value === undefined || value === null ? '' : String(value);
+        if (text.trim().startsWith('=')) {
+            sheet.cellFormulas[cellId] = text.trim().slice(1);
+            delete sheet.data[cellId];
+        } else {
+            delete sheet.cellFormulas[cellId];
+            sheet.data[cellId] = text;
+        }
     }
 
     getDefaultDecimalsByType(type) {
@@ -372,7 +406,7 @@ class VibrantSheets {
     getFormulaContext() {
         return {
             getCellValue: (cellId, stack) => {
-                const key = cellId.toUpperCase();
+                const key = this.normalizeCellRef(cellId);
                 const safeStack = stack || new Set();
                 if (safeStack.has(key)) return '#CYCLE';
                 if (this.formulaCache.has(key)) return this.formulaCache.get(key);
@@ -390,8 +424,8 @@ class VibrantSheets {
             getRangeValues: (range, stack) => {
                 const [start, end] = range.split(':');
                 if (!start || !end) return [];
-                const a = this.parseCellId(start);
-                const b = this.parseCellId(end);
+                const a = this.parseCellId(this.normalizeCellRef(start));
+                const b = this.parseCellId(this.normalizeCellRef(end));
                 const values = [];
                 for (let r = Math.min(a.row, b.row); r <= Math.max(a.row, b.row); r++) {
                     for (let c = Math.min(a.colNum, b.colNum); c <= Math.max(a.colNum, b.colNum); c++) {
@@ -402,6 +436,11 @@ class VibrantSheets {
                 return values;
             }
         };
+    }
+
+    normalizeCellRef(cellId) {
+        if (!cellId) return '';
+        return String(cellId).toUpperCase().replace(/\$/g, '');
     }
 
     renderCellById(cellId) {
@@ -501,6 +540,32 @@ class VibrantSheets {
 
     // ─── Event Listeners ───────────────────────────────────
     setupEventListeners() {
+        const fillSkip = document.getElementById('fill-skip-blanks');
+        if (fillSkip) {
+            fillSkip.checked = this.fillSkipBlanks;
+            fillSkip.addEventListener('change', () => {
+                this.fillSkipBlanks = fillSkip.checked;
+            });
+        }
+        const customBtn = document.getElementById('btn-custom-lists');
+        if (customBtn) {
+            customBtn.addEventListener('click', () => this.openCustomListModal());
+        }
+        this.bindCustomListModal();
+        document.addEventListener('keydown', (e) => {
+            if (!this.isFilling) return;
+            if (e.altKey) {
+                this.fillPreviewMode = 'copy';
+                this.updateFillPreview();
+            }
+        });
+        document.addEventListener('keyup', (e) => {
+            if (!this.isFilling) return;
+            if (!e.altKey) {
+                this.fillPreviewMode = 'series';
+                this.updateFillPreview();
+            }
+        });
         // Styling buttons (Bold, Italic handled by execCommand AND toggleStyle for persistence)
         document.getElementById('btn-bold').addEventListener('click', () => {
             document.execCommand('bold', false, null);
@@ -1325,7 +1390,11 @@ class VibrantSheets {
         const target = matchCase ? query : query.toLowerCase();
         const matches = [];
 
-        for (const key in this.data) {
+        const keys = new Set([
+            ...Object.keys(this.data),
+            ...Object.keys(this.cellFormulas)
+        ]);
+        for (const key of keys) {
             const rawValue = this.getRawValue(key);
             if (!rawValue) continue;
             const hay = matchCase ? rawValue : rawValue.toLowerCase();
@@ -1714,8 +1783,10 @@ class VibrantSheets {
         this.isFilling = true;
         this.fillRange = { ...range };
         this.lastFillTargetCell = null;
+        this.fillPreviewMode = 'series';
         this.fillHandle.style.pointerEvents = 'none';
         this.selectionOverlay.style.display = 'block';
+        if (this.fillPreview) this.fillPreview.style.display = 'none';
         e.preventDefault();
         e.stopPropagation();
     }
@@ -1733,6 +1804,7 @@ class VibrantSheets {
             if (startCell) {
                 this.updateSelectionOverlayBetween(startCell, cell);
             }
+            this.updateFillPreview();
         }
     }
 
@@ -1752,19 +1824,20 @@ class VibrantSheets {
         this.selectionOverlay.style.height = `${height}px`;
     }
 
-    handleFillEnd(e) {
+    async handleFillEnd(e) {
         if (!this.isFilling) return;
         this.isFilling = false;
         this.selectionOverlay.style.display = 'none';
+        if (this.fillPreview) this.fillPreview.style.display = 'none';
         this.fillHandle.style.pointerEvents = 'auto';
 
         if (this.lastFillTargetCell) {
-            this.fillFromRange(this.fillRange, this.lastFillTargetCell);
+            await this.fillFromRange(this.fillRange, this.lastFillTargetCell);
         }
         this.updateFillHandlePosition();
     }
 
-    fillFromRange(sourceRange, targetCell) {
+    async fillFromRange(sourceRange, targetCell) {
         const target = this.parseCellId(targetCell.dataset.id);
         const { startCol, startRow, endCol, endRow } = sourceRange;
         const rangeCols = endCol - startCol + 1;
@@ -1780,18 +1853,48 @@ class VibrantSheets {
             }
             sourceValues.push(rowVals);
         }
+        const blankMask = sourceValues.map(row => row.map(val => this.isBlankValue(val)));
+
+        const useSeriesPref = this.fillPreviewMode === 'series';
+        const forceCopy = this.fillPreviewMode === 'copy';
 
         // Determine fill direction
         if (target.colNum >= startCol && target.colNum <= endCol) {
             // Vertical fill
             const fillStart = target.row > endRow ? endRow + 1 : (target.row < startRow ? target.row : startRow);
             const fillEnd = target.row > endRow ? target.row : (target.row < startRow ? startRow - 1 : endRow);
+            if (fillStart > fillEnd) return;
+            const fillCount = fillEnd - fillStart + 1;
+            const directionSign = target.row > endRow ? 1 : -1;
+            const forward = target.row > endRow;
+            const deltaRow = forward ? 1 : -1;
+
+            const seriesByCol = [];
+            let hasSeries = false;
+            for (let c = 0; c < rangeCols; c++) {
+                const colValues = sourceValues.map(row => row[c]);
+                const seedValues = forward ? colValues : colValues.slice().reverse();
+                const seriesDir = forward ? directionSign : 1;
+                const series = this.buildSeriesFromValues(seedValues, fillCount, seriesDir);
+                seriesByCol.push(series);
+                if (series) hasSeries = true;
+            }
+
+            const useSeries = hasSeries ? (forceCopy ? false : (useSeriesPref ? true : await this.confirmFillSeries())) : false;
 
             for (let r = fillStart; r <= fillEnd; r++) {
-                const srcRowIdx = ((r - fillStart) % rangeRows);
                 for (let c = startCol; c <= endCol; c++) {
                     const srcColIdx = c - startCol;
-                    const value = sourceValues[srcRowIdx][srcColIdx];
+                    const series = seriesByCol[srcColIdx];
+                    const stepIndex = forward ? (r - fillStart) : (fillEnd - r);
+                    if (this.fillSkipBlanks && blankMask[(stepIndex % rangeRows)][srcColIdx]) continue;
+                    const baseValue = useSeries && series
+                        ? series[stepIndex]
+                        : sourceValues[(stepIndex % rangeRows)][srcColIdx];
+                    const srcRow = startRow + (stepIndex % rangeRows);
+                    const srcCol = startCol + srcColIdx;
+                    const rowDelta = deltaRow * (Math.floor(stepIndex / rangeRows) + 1);
+                    const value = this.adjustFormulaForFill(baseValue, rowDelta, c - srcCol);
                     const cell = this.getCellEl(c, r);
                     if (cell) {
                         this.setRawValue(cell.dataset.id, value);
@@ -1803,12 +1906,38 @@ class VibrantSheets {
             // Horizontal fill
             const fillStart = target.colNum > endCol ? endCol + 1 : (target.colNum < startCol ? target.colNum : startCol);
             const fillEnd = target.colNum > endCol ? target.colNum : (target.colNum < startCol ? startCol - 1 : endCol);
+            if (fillStart > fillEnd) return;
+            const fillCount = fillEnd - fillStart + 1;
+            const directionSign = target.colNum > endCol ? 1 : -1;
+            const forward = target.colNum > endCol;
+            const deltaCol = forward ? 1 : -1;
+
+            const seriesByRow = [];
+            let hasSeries = false;
+            for (let r = 0; r < rangeRows; r++) {
+                const rowValues = sourceValues[r];
+                const seedValues = forward ? rowValues : rowValues.slice().reverse();
+                const seriesDir = forward ? directionSign : 1;
+                const series = this.buildSeriesFromValues(seedValues, fillCount, seriesDir);
+                seriesByRow.push(series);
+                if (series) hasSeries = true;
+            }
+
+            const useSeries = hasSeries ? (forceCopy ? false : (useSeriesPref ? true : await this.confirmFillSeries())) : false;
 
             for (let c = fillStart; c <= fillEnd; c++) {
-                const srcColIdx = ((c - fillStart) % rangeCols);
                 for (let r = startRow; r <= endRow; r++) {
                     const srcRowIdx = r - startRow;
-                    const value = sourceValues[srcRowIdx][srcColIdx];
+                    const series = seriesByRow[srcRowIdx];
+                    const stepIndex = forward ? (c - fillStart) : (fillEnd - c);
+                    if (this.fillSkipBlanks && blankMask[srcRowIdx][(stepIndex % rangeCols)]) continue;
+                    const baseValue = useSeries && series
+                        ? series[stepIndex]
+                        : sourceValues[srcRowIdx][(stepIndex % rangeCols)];
+                    const srcRow = startRow + srcRowIdx;
+                    const srcCol = startCol + (stepIndex % rangeCols);
+                    const colDelta = deltaCol * (Math.floor(stepIndex / rangeCols) + 1);
+                    const value = this.adjustFormulaForFill(baseValue, r - srcRow, colDelta);
                     const cell = this.getCellEl(c, r);
                     if (cell) {
                         this.setRawValue(cell.dataset.id, value);
@@ -1821,6 +1950,351 @@ class VibrantSheets {
         this.markDirty();
         this.updateItemCount();
         this.refreshFindIfActive();
+    }
+
+    async confirmFillSeries() {
+        return await this.showConfirmAsyncNextTick('패턴이 감지되었습니다. 시리즈 채우기를 적용할까요?\n취소를 누르면 값 복사로 채웁니다.');
+    }
+
+    showConfirmAsyncNextTick(message) {
+        return new Promise((resolve) => {
+            requestAnimationFrame(() => {
+                this.showConfirmAsync(message).then(resolve);
+            });
+        });
+    }
+
+    updateFillPreview() {
+        if (!this.isFilling || !this.lastFillTargetCell || !this.fillPreview) return;
+        const range = this.fillRange;
+        if (!range) return;
+        const target = this.parseCellId(this.lastFillTargetCell.dataset.id);
+        let direction = null;
+        if (target.colNum >= range.startCol && target.colNum <= range.endCol) direction = 'v';
+        if (target.row >= range.startRow && target.row <= range.endRow) direction = direction ? null : 'h';
+        if (!direction) return;
+
+        const startCell = this.getCellEl(range.startCol, range.startRow);
+        if (!startCell) return;
+        const rect = startCell.getBoundingClientRect();
+        const containerRect = this.container.getBoundingClientRect();
+        const left = rect.left - containerRect.left + this.container.scrollLeft;
+        const top = rect.top - containerRect.top + this.container.scrollTop;
+        this.fillPreview.style.left = `${left}px`;
+        this.fillPreview.style.top = `${top - 26}px`;
+        this.fillPreview.style.display = 'block';
+        const label = this.fillPreview.querySelector('.fill-preview-label');
+        if (label) label.textContent = this.fillPreviewMode === 'series' ? '시리즈 채우기' : '값 복사';
+    }
+
+    buildSeriesFromValues(values, count, directionSign) {
+        if (!Array.isArray(values) || values.length === 0 || count <= 0) return null;
+        const trimmed = values.map(v => (v === null || v === undefined) ? '' : String(v));
+        if (trimmed.some(v => v.trim().startsWith('='))) return null;
+
+        const numeric = this.buildNumericSeries(trimmed, count, directionSign);
+        if (numeric) return numeric;
+
+        const dateSeries = this.buildDateSeries(trimmed, count, directionSign);
+        if (dateSeries) return dateSeries;
+
+        const listSeries = this.buildListSeries(trimmed, count, directionSign);
+        if (listSeries) return listSeries;
+
+        const textNumSeries = this.buildTextNumberSeries(trimmed, count, directionSign);
+        if (textNumSeries) return textNumSeries;
+
+        return null;
+    }
+
+    buildNumericSeries(values, count, directionSign) {
+        const nums = [];
+        for (const raw of values) {
+            if (!/^\s*[+-]?(\d{1,3}(,\d{3})*|\d+)(\.\d+)?\s*$/.test(raw)) {
+                return null;
+            }
+            const trimmed = raw.trim();
+            if (/^[+-]?0\d+/.test(trimmed) && !/^0(\.\d+)?$/.test(trimmed)) {
+                return null;
+            }
+            const n = Number(String(raw).replace(/,/g, '').trim());
+            if (!Number.isFinite(n)) return null;
+            nums.push(n);
+        }
+        const decimals = this.getDecimalPlaces(values[values.length - 1]);
+        if (nums.length >= 2) {
+            const diffs = [];
+            for (let i = 1; i < nums.length; i++) {
+                diffs.push(nums[i] - nums[i - 1]);
+            }
+            const allSameDiff = diffs.every(d => Math.abs(d - diffs[0]) < 1e-9);
+            const ratioValid = nums.every(n => n !== 0);
+            let ratio = null;
+            if (ratioValid) {
+                const ratios = [];
+                for (let i = 1; i < nums.length; i++) {
+                    ratios.push(nums[i] / nums[i - 1]);
+                }
+                if (ratios.every(r => Math.abs(r - ratios[0]) < 1e-9)) ratio = ratios[0];
+            }
+
+            if (ratio !== null && ratio !== 1 && !allSameDiff) {
+                const stepRatio = directionSign < 0 ? 1 / ratio : ratio;
+                const series = [];
+                let current = nums[nums.length - 1];
+                for (let i = 0; i < count; i++) {
+                    current *= stepRatio;
+                    series.push(this.formatSeriesNumber(current, decimals));
+                }
+                return series;
+            }
+
+            if (allSameDiff) {
+                let step = diffs[0];
+                if (directionSign < 0) step = -step;
+                const series = [];
+                let current = nums[nums.length - 1];
+                for (let i = 0; i < count; i++) {
+                    current += step;
+                    series.push(this.formatSeriesNumber(current, decimals));
+                }
+                return series;
+            }
+        }
+
+        const stepBase = 1;
+        const step = directionSign < 0 ? -stepBase : stepBase;
+        const series = [];
+        let current = nums[nums.length - 1];
+        for (let i = 0; i < count; i++) {
+            current += step;
+            series.push(this.formatSeriesNumber(current, decimals));
+        }
+        return series;
+    }
+
+    buildDateSeries(values, count, directionSign) {
+        const dates = [];
+        for (const raw of values) {
+            if (!/^\s*\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}\s*$/.test(raw)) return null;
+            const dt = this.parseDateFromRaw(raw);
+            if (!dt) return null;
+            dates.push(dt);
+        }
+        const last = dates[dates.length - 1];
+        const prev = dates.length >= 2 ? dates[dates.length - 2] : null;
+        let stepDays = 1;
+        if (prev) {
+            stepDays = Math.round((last - prev) / 86400000) || 1;
+        }
+        if (directionSign < 0) stepDays = -stepDays;
+        const series = [];
+        let current = new Date(last.getTime());
+        for (let i = 0; i < count; i++) {
+            current = new Date(current.getTime() + stepDays * 86400000);
+            series.push(this.formatDateIso(current));
+        }
+        return series;
+    }
+
+    buildListSeries(values, count, directionSign) {
+        const lists = [
+            ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'],
+            ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+            ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'],
+            ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+            ['일', '월', '화', '수', '목', '금', '토'],
+            ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'],
+            ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+            ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'],
+            ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+            ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월']
+        ];
+        this.customLists.forEach(list => lists.push(list));
+
+        const upperValues = values.map(v => v.trim().toUpperCase());
+        for (const list of lists) {
+            const upperList = list.map(v => v.toUpperCase());
+            const indices = [];
+            for (const v of upperValues) {
+                const idx = upperList.indexOf(v);
+                if (idx === -1) {
+                    indices.length = 0;
+                    break;
+                }
+                indices.push(idx);
+            }
+            if (indices.length === 0) continue;
+
+            let step = indices.length >= 2 ? (indices[indices.length - 1] - indices[indices.length - 2]) : 1;
+            if (directionSign < 0) step = -step;
+            const series = [];
+            let current = indices[indices.length - 1];
+            for (let i = 0; i < count; i++) {
+                current = (current + step) % list.length;
+                if (current < 0) current += list.length;
+                series.push(list[current]);
+            }
+            return series;
+        }
+        return null;
+    }
+
+    buildTextNumberSeries(values, count, directionSign) {
+        const parts = values.map(v => v.match(/^(.*?)(-?\d+)$/));
+        if (parts.some(p => !p)) return null;
+        const prefix = parts[0][1];
+        if (!parts.every(p => p[1] === prefix)) return null;
+        const nums = parts.map(p => Number(p[2]));
+        if (nums.some(n => !Number.isFinite(n))) return null;
+        const lastNumStr = parts[parts.length - 1][2];
+        const padWidth = lastNumStr.startsWith('-') ? lastNumStr.length - 1 : lastNumStr.length;
+        const stepBase = nums.length >= 2 ? (nums[nums.length - 1] - nums[nums.length - 2]) : 1;
+        const step = directionSign < 0 ? -stepBase : stepBase;
+        const series = [];
+        let current = nums[nums.length - 1];
+        for (let i = 0; i < count; i++) {
+            current += step;
+            series.push(prefix + this.formatPaddedNumber(current, padWidth));
+        }
+        return series;
+    }
+
+    getDecimalPlaces(value) {
+        const text = String(value).trim();
+        const match = text.match(/\.(\d+)\s*$/);
+        return match ? match[1].length : 0;
+    }
+
+    formatSeriesNumber(num, decimals) {
+        if (decimals > 0) return num.toFixed(decimals);
+        return String(Number.isFinite(num) ? num : 0);
+    }
+
+    formatDateIso(date) {
+        const yyyy = date.getFullYear();
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const dd = String(date.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+    }
+
+    formatPaddedNumber(num, width) {
+        if (!Number.isFinite(num)) return String(num);
+        const sign = num < 0 ? '-' : '';
+        const abs = Math.abs(Math.trunc(num));
+        const str = String(abs).padStart(width, '0');
+        return sign + str;
+    }
+
+    loadCustomLists() {
+        try {
+            const raw = localStorage.getItem('vs_custom_lists');
+            if (!raw) return [];
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) return [];
+            return parsed
+                .map(line => Array.isArray(line) ? line : String(line).split(','))
+                .map(list => list.map(item => String(item).trim()).filter(Boolean))
+                .filter(list => list.length > 0);
+        } catch (err) {
+            return [];
+        }
+    }
+
+    saveCustomLists() {
+        try {
+            const serialized = this.customLists.map(list => list.join(','));
+            localStorage.setItem('vs_custom_lists', JSON.stringify(serialized));
+        } catch (err) {
+            console.warn('Failed to save custom lists', err);
+        }
+    }
+
+    bindCustomListModal() {
+        const modal = document.getElementById('custom-list-modal');
+        const input = document.getElementById('custom-list-input');
+        const btnSave = document.getElementById('custom-list-save');
+        const btnCancel = document.getElementById('custom-list-cancel');
+        const btnClose = document.getElementById('custom-list-close');
+        if (!modal || !input || !btnSave || !btnCancel || !btnClose) return;
+
+        const close = () => { modal.style.display = 'none'; };
+        btnCancel.addEventListener('click', close);
+        btnClose.addEventListener('click', close);
+
+        btnSave.addEventListener('click', () => {
+            const lines = input.value.split('\n').map(line => line.trim()).filter(Boolean);
+            const lists = lines.map(line => line.split(',').map(item => item.trim()).filter(Boolean)).filter(list => list.length > 0);
+            this.customLists = lists;
+            this.saveCustomLists();
+            close();
+        });
+    }
+
+    openCustomListModal() {
+        const modal = document.getElementById('custom-list-modal');
+        const input = document.getElementById('custom-list-input');
+        if (!modal || !input) return;
+        const lines = (this.customLists || []).map(list => list.join(', '));
+        input.value = lines.join('\n');
+        modal.style.display = 'flex';
+        input.focus();
+    }
+
+    isBlankValue(value) {
+        if (value === null || value === undefined) return true;
+        return String(value).trim() === '';
+    }
+
+    adjustFormulaForFill(rawValue, rowDelta, colDelta) {
+        if (rawValue === null || rawValue === undefined) return rawValue;
+        const text = String(rawValue);
+        const trimmed = text.trim();
+        if (!trimmed.startsWith('=')) return rawValue;
+
+        const body = trimmed.slice(1);
+        let out = '';
+        let i = 0;
+        while (i < body.length) {
+            const ch = body[i];
+            if (ch === '"') {
+                out += ch;
+                i++;
+                while (i < body.length) {
+                    const c = body[i];
+                    const next = body[i + 1];
+                    out += c;
+                    i++;
+                    if (c === '"' && next === '"') {
+                        out += '"';
+                        i++;
+                        continue;
+                    }
+                    if (c === '"') break;
+                }
+                continue;
+            }
+            let j = i;
+            while (j < body.length && body[j] !== '"') j++;
+            const segment = body.slice(i, j);
+            out += segment.replace(/(\$?[A-Z]+)(\$?\d+)/gi, (match, colPart, rowPart) => {
+                const colAbs = colPart.startsWith('$');
+                const rowAbs = rowPart.startsWith('$');
+                const colLetters = colPart.replace('$', '').toUpperCase();
+                const rowNum = parseInt(rowPart.replace('$', ''), 10);
+                if (!Number.isFinite(rowNum)) return match;
+                let newColNum = this.colToNumber(colLetters);
+                let newRowNum = rowNum;
+                if (!colAbs) newColNum += colDelta;
+                if (!rowAbs) newRowNum += rowDelta;
+                if (newColNum < 1 || newRowNum < 1) return match;
+                const newCol = (colAbs ? '$' : '') + this.numberToCol(newColNum);
+                const newRow = (rowAbs ? '$' : '') + newRowNum;
+                return `${newCol}${newRow}`;
+            });
+            i = j;
+        }
+        return '=' + out;
     }
 
     // ─── Clipboard ─────────────────────────────────────────
@@ -2436,6 +2910,7 @@ class VibrantSheets {
                 data: sheet.data || {},
                 cellStyles: sheet.cellStyles || {},
                 cellFormats: sheet.cellFormats || {},
+                cellFormulas: sheet.cellFormulas || {},
                 colWidths: sheet.colWidths || new Array(this.baseCols).fill(100),
                 rowHeights: sheet.rowHeights || new Array(this.baseRows + 1).fill(25)
             }));
@@ -2446,6 +2921,7 @@ class VibrantSheets {
             this.data = doc.data || {};
             this.cellStyles = doc.cellStyles || {};
             this.cellFormats = doc.cellFormats || {};
+            this.cellFormulas = doc.cellFormulas || {};
         }
 
         // Re-render or Refresh UI
@@ -2486,17 +2962,17 @@ class VibrantSheets {
                     let raw = '';
 
                     if (cell.type === ExcelJS.ValueType.Formula) {
-                        raw = '=' + cell.formula;
+                        this.setRawValueForSheet(sheet, cellId, '=' + cell.formula);
                     } else if (cell.type === ExcelJS.ValueType.Date && cell.value instanceof Date) {
                         const yyyy = cell.value.getFullYear();
                         const mm = String(cell.value.getMonth() + 1).padStart(2, '0');
                         const dd = String(cell.value.getDate()).padStart(2, '0');
                         raw = `${yyyy}-${mm}-${dd}`;
+                        this.setRawValueForSheet(sheet, cellId, raw);
                     } else {
                         raw = cell.value === null || cell.value === undefined ? '' : String(cell.value);
+                        this.setRawValueForSheet(sheet, cellId, raw);
                     }
-
-                    this.setRawValueForSheet(sheet, cellId, raw);
                     if (cell.numFmt) {
                         sheet.cellFormats[cellId] = this.getExceljsFormatFromNumFmt(cell.numFmt, cell.type);
                     }
@@ -2728,7 +3204,8 @@ class VibrantSheets {
                 colWidths: sheet.colWidths,
                 rowHeights: sheet.rowHeights,
                 cellStyles: sheet.cellStyles,
-                cellFormats: sheet.cellFormats
+                cellFormats: sheet.cellFormats,
+                cellFormulas: sheet.cellFormulas
             })),
             activeSheetIndex: this.activeSheetIndex
         };
@@ -2743,6 +3220,7 @@ class VibrantSheets {
             maxCol = Math.max(maxCol, colNum);
         };
         Object.keys(sheet.data || {}).forEach(scan);
+        Object.keys(sheet.cellFormulas || {}).forEach(scan);
         Object.keys(sheet.cellStyles || {}).forEach(scan);
         Object.keys(sheet.cellFormats || {}).forEach(scan);
         return { maxRow, maxCol };
@@ -3112,13 +3590,16 @@ class VibrantSheets {
         this.data = {};
         this.cellStyles = {};
         this.cellFormats = {};
+        this.cellFormulas = {};
         if (shouldMarkDirty) this.markDirty();
         this.updateItemCount();
         this.refreshFindIfActive();
     }
 
     updateItemCount() {
-        const count = Object.keys(this.data).filter(k => this.data[k] && this.data[k].trim() !== '').length;
+        const dataCount = Object.keys(this.data).filter(k => this.data[k] && this.data[k].trim() !== '').length;
+        const formulaCount = Object.keys(this.cellFormulas).filter(k => this.cellFormulas[k] && this.cellFormulas[k].trim() !== '').length;
+        const count = dataCount + formulaCount;
         const metricsSpan = document.querySelector('.metrics span:first-child');
         if (metricsSpan) {
             metricsSpan.innerText = `Items: ${count}`;
@@ -3258,6 +3739,7 @@ class VibrantSheets {
         const newData = {};
         const newStyles = {};
         const newFormats = {};
+        const newFormulas = {};
 
         // Helper to shift a single coordinate
         const shiftCoord = (coord, t, d) => (coord >= t ? coord + d : coord);
@@ -3316,9 +3798,28 @@ class VibrantSheets {
             }
         }
 
+        // Process formulas
+        for (const key in this.cellFormulas) {
+            const { row, colNum } = this.parseCellId(key);
+            let nRow = row;
+            let nColNum = colNum;
+
+            if (type === 'row') {
+                nRow = shiftCoord(row, threshold, delta);
+            } else {
+                nColNum = shiftCoord(colNum, threshold, delta);
+            }
+
+            if (nRow > 0 && nColNum > 0) {
+                const newKey = `${this.numberToCol(nColNum)}${nRow}`;
+                newFormulas[newKey] = this.cellFormulas[key];
+            }
+        }
+
         this.data = newData;
         this.cellStyles = newStyles;
         this.cellFormats = newFormats;
+        this.cellFormulas = newFormulas;
     }
 }
 
