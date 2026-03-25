@@ -186,6 +186,16 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.tool-btn svg {
+    stroke: var(--text-secondary);
+    transition: stroke 0.2s ease;
+}
+
+.tool-btn:hover svg {
+    stroke: var(--accent-color);
 }
 
 .tool-btn:hover {
@@ -205,6 +215,63 @@ body {
     padding: 4px 8px;
     border-radius: 4px;
     font-size: 0.85rem;
+    outline: none;
+}
+
+.tool-btn.active {
+    background-color: var(--accent-color);
+    color: white;
+}
+
+.tool-btn.active svg {
+    stroke: #ffffff;
+}
+
+/* IME & Ready Mode Caret Handling */
+.cell:focus:not(.editing) {
+    caret-color: transparent !important;
+}
+
+.cell.editing {
+    caret-color: var(--text-primary);
+}
+
+/* Color Picker Styling */
+.color-picker-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    gap: 2px;
+}
+
+.color-picker-wrapper:hover {
+    background-color: var(--border-color);
+}
+
+.color-picker-wrapper input[type="color"] {
+    -webkit-appearance: none;
+    appearance: none;
+    border: none;
+    width: 16px;
+    height: 4px;
+    cursor: pointer;
+    padding: 0;
+    border-radius: 2px;
+    background: none;
+}
+
+.color-picker-wrapper input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+
+.color-picker-wrapper input[type="color"]::-webkit-color-swatch {
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 2px;
 }
 
 /* Formula Bar */
@@ -274,14 +341,32 @@ body {
 }
 
 .cell:focus {
-    height: auto;
-    min-height: 40px; /* Slightly taller to show it expanded */
-    overflow: visible;
-    z-index: 100;
+    /* Selection is now handled by selection-overlay */
+    outline: none;
+    z-index: 5;
     position: relative;
+}
+
+.selection-overlay {
+    position: absolute;
+    border: 3px solid var(--accent-color);
+    background-color: transparent;
+    pointer-events: none;
+    z-index: 21; /* Above fill handle 20 */
+    box-sizing: border-box;
+    transition: none;
+}
+
+.cell.editing {
     background-color: var(--bg-color);
-    line-height: normal;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    box-shadow: inset 0 0 0 2px var(--accent-color), 0 4px 12px rgba(0,0,0,0.4);
+    z-index: 100;
+    cursor: text;
+    user-select: text;
+}
+
+.cell.editing:focus {
+    outline: none; /* Already has inset shadow */
 }
 
 .selection-overlay {
@@ -300,8 +385,10 @@ body {
 .range-overlay {
     position: absolute;
     border: 2px solid var(--accent-color);
+    background-color: rgba(56, 189, 248, 0.05); /* Subtle background for selected range */
     pointer-events: none;
     z-index: 14;
+    box-sizing: border-box;
     transition: all 0.05s ease;
 }
 
@@ -344,11 +431,6 @@ body {
 .cell.header.active {
     color: var(--accent-color);
     background-color: var(--selection-color);
-}
-
-.cell:focus {
-    outline: 2px solid var(--accent-color);
-    z-index: 10;
 }
 
 .fill-handle {

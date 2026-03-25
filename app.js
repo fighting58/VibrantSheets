@@ -5,6 +5,9 @@ class VibrantSheets {
         this.selectedCell = null;
         this.data = {}; // Store cell data here: { 'A1': 'value' }
         this.isDirty = false;
+        this.fileHandle = null; // Current working file handle
+        this.isEditing = false; // State: Ready (false) vs Edit (true)
+        this.originalValue = ""; // Backup for Esc key (cancel edit)
         
         // Range selection state
         this.selectionRange = null; // { startCol, startRow, endCol, endRow }
@@ -30,6 +33,7 @@ class VibrantSheets {
         this.resizeStartPos = 0;
         this.resizeStartSize = 0;
 
+        this.cellStyles = {}; // Mapping cellId -> { fontWeight, fontStyle, textDecoration, color, backgroundColor, textAlign, fontSize, fontFamily }
         this.init();
     }
 
@@ -38,8 +42,22 @@ class VibrantSheets {
         this.formulaInput = document.getElementById('formula-input');
         this.cellAddress = document.getElementById('selected-cell-id');
         
+        // Create Selection & Resize Visuals
+        this.selectionOverlay = this.createOverlay('selection-overlay');
+        this.rangeOverlay = this.createOverlay('range-overlay');
+        this.fillHandle = this.createOverlay('fill-handle');
+        this.resizeGuide = this.createOverlay('resize-guide');
+
         this.renderGrid();
         this.setupEventListeners();
+    }
+
+    createOverlay(className) {
+        const div = document.createElement('div');
+        div.className = className;
+        div.style.display = 'none';
+        this.container.appendChild(div);
+        return div;
     }
 
     // ─── Utility ───────────────────────────────────────────
@@ -129,7 +147,8 @@ class VibrantSheets {
             for (let j = 0; j < this.cols; j++) {
                 const td = document.createElement('td');
                 td.className = 'cell';
-                td.contentEditable = true;
+                td.contentEditable = false; // Initially Ready Mode
+                td.tabIndex = 0; // Make focusable for keyboard events in Ready mode
                 const cellId = `${this.numberToCol(j + 1)}${i}`;
                 td.dataset.id = cellId;
                 
@@ -142,7 +161,9 @@ class VibrantSheets {
                 td.addEventListener('blur', () => this.handleCellBlur(td));
                 td.addEventListener('keydown', (e) => this.handleKeyDown(e));
                 td.addEventListener('mousedown', (e) => this.handleCellMouseDown(td, e));
+                td.addEventListener('dblclick', (e) => this.enterEditMode(td));
                 
+                this.renderStyles(td);
                 tr.appendChild(td);
             }
             this.tbody.appendChild(tr);
@@ -160,9 +181,29 @@ class VibrantSheets {
             document.execCommand('italic', false, null);
         });
 
-        // CSV Open/Save buttons
+        // Styling buttons
+        document.getElementById('btn-bold').addEventListener('click', () => this.toggleStyle('fontWeight', 'bold', 'normal'));
+        document.getElementById('btn-italic').addEventListener('click', () => this.toggleStyle('fontStyle', 'italic', 'normal'));
+        document.getElementById('btn-underline').addEventListener('click', () => this.toggleStyle('textDecoration', 'underline', 'none'));
+        document.getElementById('btn-strike').addEventListener('click', () => this.toggleStyle('textDecoration', 'line-through', 'none'));
+
+        // Color pickers
+        document.getElementById('text-color').addEventListener('input', (e) => this.applyStyle('color', e.target.value));
+        document.getElementById('bg-color').addEventListener('input', (e) => this.applyStyle('backgroundColor', e.target.value));
+
+        // Alignment
+        document.getElementById('btn-align-left').addEventListener('click', () => this.applyStyle('textAlign', 'left'));
+        document.getElementById('btn-align-center').addEventListener('click', () => this.applyStyle('textAlign', 'center'));
+        document.getElementById('btn-align-right').addEventListener('click', () => this.applyStyle('textAlign', 'right'));
+
+        // Font family & size
+        document.getElementById('font-family').addEventListener('change', (e) => this.applyStyle('fontFamily', e.target.value));
+        document.getElementById('font-size').addEventListener('input', (e) => this.applyStyle('fontSize', e.target.value + 'pt'));
+
+        // File Dialog buttons
         document.getElementById('btn-open').addEventListener('click', () => this.openFileDialog());
-        document.getElementById('btn-save').addEventListener('click', () => this.exportFile());
+        document.getElementById('btn-save').addEventListener('click', () => this.saveFile());
+        document.getElementById('btn-save-as').addEventListener('click', () => this.saveFileAs());
 
         // Hidden file input for CSV import
         this.fileInput = document.getElementById('csv-file-input');
@@ -216,10 +257,22 @@ class VibrantSheets {
                 this.handleFillEnd(e);
             }
         });
+
+        // Maintain overlay alignment on window resize or container scroll
+        window.addEventListener('resize', () => {
+            this.updateSelectionOverlay();
+            this.updateRangeVisual();
+            this.updateFillHandlePosition();
+        });
+        this.container.addEventListener('scroll', () => {
+             this.updateSelectionOverlay();
+             this.updateRangeVisual();
+             this.updateFillHandlePosition();
+        }, { passive: true });
         // Global keyboard shortcuts (clipboard, delete)
         document.addEventListener('keydown', (e) => {
-            // Ignore if typing in formula bar
-            if (e.target.id === 'formula-input') return;
+            // Ignore if typing in formula bar or in a cell edit
+            if (e.target.id === 'formula-input' || this.isEditing) return;
 
             if (e.ctrlKey || e.metaKey) {
                 switch (e.key.toLowerCase()) {
@@ -241,7 +294,7 @@ class VibrantSheets {
                         break;
                     case 's':
                         e.preventDefault();
-                        this.exportFile();
+                        this.saveFile();
                         break;
                     case 'o':
                         e.preventDefault();
@@ -444,6 +497,143 @@ class VibrantSheets {
         this.cellAddress.innerText = cellId;
         this.formulaInput.value = cell.innerText;
         this.highlightHeaders(cell);
+        this.updateSelectionOverlay();
+        this.scrollToVisible(cell);
+        this.updateToolbarState(cell);
+
+        // Always make focused cell editable to support seamless IME start
+        if (!this.isEditing) {
+            cell.contentEditable = true;
+        }
+    }
+
+    scrollToVisible(cell) {
+        if (!cell) return;
+        
+        const containerRect = this.container.getBoundingClientRect();
+        const cellRect = cell.getBoundingClientRect();
+        
+        // Sticky boundary offsets (Matches CSS heights/widths)
+        const headerHeight = 25; // Standard row height for col headers
+        const rowHeaderWidth = 40; // Fixed width for row headers
+        
+        const buffer = 5; // Extra padding for comfort
+        
+        // Vertical check (Hidden by sticky header or below container)
+        if (cellRect.top < containerRect.top + headerHeight) {
+            // Scroll UP to show the cell beneath the header
+            this.container.scrollTop -= (containerRect.top + headerHeight - cellRect.top + buffer);
+        } else if (cellRect.bottom > containerRect.bottom) {
+            // Scroll DOWN
+            this.container.scrollTop += (cellRect.bottom - containerRect.bottom + buffer);
+        }
+        
+        // Horizontal check (Hidden by sticky row header or right of container)
+        if (cellRect.left < containerRect.left + rowHeaderWidth) {
+            // Scroll LEFT
+            this.container.scrollLeft -= (containerRect.left + rowHeaderWidth - cellRect.left + buffer);
+        } else if (cellRect.right > containerRect.right) {
+            // Scroll RIGHT
+            this.container.scrollLeft += (cellRect.right - containerRect.right + buffer);
+        }
+    }
+
+    // ─── Styling ───────────────────────────────────────────
+    toggleStyle(prop, activeValue, defaultValue) {
+        const targetIds = this.getSelectionTargetIds();
+        if (targetIds.length === 0) return;
+
+        // Determine if we should set or unset based on the first cell
+        const firstCellId = targetIds[0];
+        const currentStyle = this.cellStyles[firstCellId] || {};
+        const newValue = currentStyle[prop] === activeValue ? defaultValue : activeValue;
+
+        this.applyStyle(prop, newValue);
+    }
+
+    applyStyle(prop, value) {
+        const targetIds = this.getSelectionTargetIds();
+        if (targetIds.length === 0) return;
+
+        targetIds.forEach(id => {
+            if (!this.cellStyles[id]) this.cellStyles[id] = {};
+            this.cellStyles[id][prop] = value;
+
+            const el = document.querySelector(`[data-id="${id}"]`);
+            if (el) {
+                el.style[prop] = value;
+            }
+        });
+
+        this.setDirty(true);
+        if (this.selectedCell) this.updateToolbarState(this.selectedCell);
+    }
+
+    getSelectionTargetIds() {
+        if (this.selectionRange) {
+            const { startCol, startRow, endCol, endRow } = this.selectionRange;
+            const ids = [];
+            for (let r = Math.min(startRow, endRow); r <= Math.max(startRow, endRow); r++) {
+                for (let c = Math.min(startCol, endCol); c <= Math.max(startCol, endCol); c++) {
+                    ids.push(`${this.numberToCol(c)}${r}`);
+                }
+            }
+            return ids;
+        } else if (this.selectedCell) {
+            return [this.selectedCell.dataset.id];
+        }
+        return [];
+    }
+
+    updateToolbarState(cell) {
+        const id = cell.dataset.id;
+        const style = this.cellStyles[id] || {};
+
+        // Helper to toggle active class
+        const setBtnActive = (btnId, isActive) => {
+            const btn = document.getElementById(btnId);
+            if (btn) btn.classList.toggle('active', isActive);
+        };
+
+        setBtnActive('btn-bold', style.fontWeight === 'bold');
+        setBtnActive('btn-italic', style.fontStyle === 'italic');
+        setBtnActive('btn-underline', style.textDecoration === 'underline');
+        setBtnActive('btn-strike', style.textDecoration === 'line-through');
+
+        // Color pickers
+        document.getElementById('text-color').value = style.color || '#ffffff';
+        document.getElementById('bg-color').value = style.backgroundColor || '#1e1e1e';
+
+        // Alignment
+        setBtnActive('btn-align-left', style.textAlign === 'left');
+        setBtnActive('btn-align-center', style.textAlign === 'center');
+        setBtnActive('btn-align-right', style.textAlign === 'right');
+
+        // Font dropdowns
+        if (style.fontFamily) document.getElementById('font-family').value = style.fontFamily;
+        if (style.fontSize) document.getElementById('font-size').value = parseInt(style.fontSize);
+    }
+
+    renderStyles(cell) {
+        const id = cell.dataset.id;
+        const style = this.cellStyles[id];
+        if (style) {
+            Object.assign(cell.style, style);
+        }
+    }
+
+    updateSelectionOverlay() {
+        if (!this.selectedCell || !this.selectionOverlay) return;
+
+        const cell = this.selectedCell;
+        const rect = cell.getBoundingClientRect();
+        const containerRect = this.container.getBoundingClientRect();
+
+        this.selectionOverlay.style.display = 'block';
+        this.selectionOverlay.style.top = `${rect.top - containerRect.top + this.container.scrollTop}px`;
+        this.selectionOverlay.style.left = `${rect.left - containerRect.left + this.container.scrollLeft}px`;
+        this.selectionOverlay.style.width = `${rect.width}px`;
+        this.selectionOverlay.style.height = `${rect.height}px`;
     }
 
     clearHighlights() {
@@ -464,6 +654,14 @@ class VibrantSheets {
     }
 
     handleCellInput(cell) {
+        // If we just entered Enter Mode, we want the first input to overwrite everything
+        if (this.needsOverwrite) {
+            this.needsOverwrite = false;
+            // The browser already inserted the first character/composition. 
+            // We just need to make sure it's the ONLY thing in the cell.
+            // However, with IME, innerText might contain the composing character.
+        }
+        
         const cellId = cell.dataset.id;
         this.data[cellId] = cell.innerText;
         this.formulaInput.value = cell.innerText;
@@ -472,7 +670,9 @@ class VibrantSheets {
     }
 
     handleCellBlur(cell) {
-        // Save data on blur
+        if (this.isEditing) {
+            this.exitEditMode(true);
+        }
     }
 
     markDirty() {
@@ -508,6 +708,12 @@ class VibrantSheets {
         const cellId = cell.dataset.id;
         const { col, row, colNum } = this.parseCellId(cellId);
 
+        // Enter Edit mode if already selected (second click)
+        if (this.selectedCell === cell && !this.isEditing && !e.shiftKey) {
+            this.enterEditMode(cell);
+            return;
+        }
+
         if (e.shiftKey && this.selectedCell) {
             // Shift+Click: extend selection from current cell
             e.preventDefault();
@@ -518,12 +724,19 @@ class VibrantSheets {
             return;
         }
 
-        // Normal click: start new selection
+        // Standard selection behavior
+        if (this.isEditing && this.selectedCell !== cell) {
+            this.exitEditMode(true);
+        }
+
         this.clearRangeSelection();
         this.selectionAnchor = { colNum, row };
         this.isSelecting = true;
         this.setSelectionRange(colNum, row, colNum, row);
         this.updateRangeVisual();
+        
+        // Focus cell but don't edit yet
+        cell.focus();
     }
 
     extendRangeSelection(cell) {
@@ -555,9 +768,14 @@ class VibrantSheets {
         this.selectionRange = null;
         document.querySelectorAll('.cell.in-range').forEach(c => c.classList.remove('in-range'));
         if (this.rangeOverlay) this.rangeOverlay.style.display = 'none';
+        if (this.selectionOverlay) this.selectionOverlay.style.display = 'none';
+        this.clearHighlights();
     }
 
     updateRangeVisual() {
+        // Always update selection overlay for the active cell
+        this.updateSelectionOverlay();
+
         // Remove old highlights
         document.querySelectorAll('.cell.in-range').forEach(c => c.classList.remove('in-range'));
 
@@ -1012,19 +1230,51 @@ class VibrantSheets {
         if (!activeCell || activeCell.classList.contains('header')) return;
         if (e.target.id === 'formula-input') return;
 
-        // Ctrl/Meta shortcuts handled globally
+        // Global shortcuts like Ctrl+C/V are handled globally (setupEventListeners)
         if (e.ctrlKey || e.metaKey) return;
 
-        // Delete/Backspace for range
-        if (e.key === 'Delete' || e.key === 'Backspace') {
-            if (this.selectionRange) {
-                const { startCol, startRow, endCol, endRow } = this.selectionRange;
-                if (startCol !== endCol || startRow !== endRow) {
-                    e.preventDefault();
-                    this.deleteSelection();
-                    return;
-                }
+        // F2 for Edit Mode
+        if (e.key === 'F2' && !this.isEditing) {
+            e.preventDefault();
+            this.enterEditMode(activeCell);
+            return;
+        }
+
+        // Esc for Canceletion
+        if (e.key === 'Escape') {
+            if (this.isEditing) {
+                e.preventDefault();
+                this.exitEditMode(false);
+            } else {
+                this.clearRangeSelection();
+                this.updateFillHandlePosition();
             }
+            return;
+        }
+
+        // If in Edit mode, limit keyboard navigation
+        if (this.isEditing) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                this.exitEditMode(true);
+                // Move down after commit
+                this.moveSelection(0, 1);
+            } else if (e.key === 'Tab') {
+                e.preventDefault();
+                this.exitEditMode(true);
+                this.moveSelection(e.shiftKey ? -1 : 1, 0);
+            }
+            e.stopPropagation(); // Prevent bubbling to global listeners (like Delete)
+            return; // Arrows move cursor normally in Edit mode
+        }
+
+        // If in Ready mode (not editing)
+        // Check for direct typing (start overwriting)
+        if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+            // Already editable due to focus() set, so we just toggle state and select all for overwrite
+            this.prepareEnterMode(activeCell); 
+            // DO NOT e.preventDefault() -> Let the browser insert the first char/IME composition
+            return;
         }
 
         const cellId = activeCell.dataset.id;
@@ -1044,6 +1294,7 @@ class VibrantSheets {
                 }
                 if (rowNum > 1) nextRow--;
                 moved = true;
+                e.preventDefault();
                 break;
             case 'ArrowDown':
                 if (e.shiftKey) {
@@ -1053,6 +1304,7 @@ class VibrantSheets {
                 }
                 if (rowNum < this.rows) nextRow++;
                 moved = true;
+                e.preventDefault();
                 break;
             case 'ArrowLeft':
                 if (e.shiftKey) {
@@ -1062,6 +1314,7 @@ class VibrantSheets {
                 }
                 if (colNum > 1) nextCol = colNum - 1;
                 moved = true;
+                e.preventDefault();
                 break;
             case 'ArrowRight':
                 if (e.shiftKey) {
@@ -1071,6 +1324,7 @@ class VibrantSheets {
                 }
                 if (colNum < this.cols) nextCol = colNum + 1;
                 moved = true;
+                e.preventDefault(); // Stop default browser scroll
                 break;
             case 'Tab':
                 e.preventDefault();
@@ -1082,14 +1336,7 @@ class VibrantSheets {
                 moved = true;
                 break;
             case 'Enter':
-                if (e.altKey) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    document.execCommand('insertLineBreak');
-                    return;
-                }
                 e.preventDefault();
-                e.stopPropagation();
                 if (e.shiftKey) {
                     if (rowNum > 1) nextRow--;
                 } else {
@@ -1097,25 +1344,111 @@ class VibrantSheets {
                 }
                 moved = true;
                 break;
-            case 'Escape':
-                this.clearRangeSelection();
-                this.updateFillHandlePosition();
-                return;
+            case 'Delete':
+            case 'Backspace':
+                if (this.selectionRange) {
+                    const { startCol, startRow, endCol, endRow } = this.selectionRange;
+                    if (startCol !== endCol || startRow !== endRow) {
+                        e.preventDefault();
+                        this.deleteSelection();
+                        return;
+                    }
+                }
+                // Single cell delete
+                activeCell.innerText = '';
+                this.data[activeCell.dataset.id] = '';
+                this.updateItemCount();
+                break;
         }
 
         if (moved) {
             this.clearRangeSelection();
-            const nextCellId = `${this.numberToCol(nextCol)}${nextRow}`;
-            const nextCell = document.querySelector(`[data-id="${nextCellId}"]`);
+            this.setSelectionRange(nextCol, nextRow, nextCol, nextRow);
+            const nextCell = this.getCellEl(nextCol, nextRow);
             if (nextCell) {
-                e.preventDefault();
-                e.stopPropagation();
-                nextCell.focus();
+                nextCell.focus({ preventScroll: true });
                 this.handleCellFocus(nextCell);
-                // Set single-cell range
-                this.setSelectionRange(nextCol, nextRow, nextCol, nextRow);
                 this.updateFillHandlePosition();
             }
+        }
+    }
+
+    // ─── Mode Handlers ─────────────────────────────────────
+    enterEditMode(cell) {
+        if (this.isEditing) return;
+        this.isEditing = true;
+        this.originalValue = cell.innerText;
+        cell.contentEditable = true;
+        cell.classList.add('editing');
+        cell.focus();
+        
+        // Move cursor to end
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.selectNodeContents(cell);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+
+    prepareEnterMode(cell) {
+        if (this.isEditing) return;
+        this.isEditing = true;
+        this.originalValue = cell.innerText;
+        
+        cell.classList.add('editing');
+        
+        // Select all text in the cell so the next keystroke replaces it (Overwrite behavior)
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.selectNodeContents(cell);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        
+        this.markDirty();
+    }
+
+    enterEnterMode(cell) {
+        this.prepareEnterMode(cell);
+    }
+
+    enterEnterMode(cell) {
+        this.prepareEnterMode(cell);
+    }
+
+    exitEditMode(commit = true) {
+        if (!this.isEditing || !this.selectedCell) return;
+        
+        const cell = this.selectedCell;
+        if (!commit) {
+            cell.innerText = this.originalValue;
+        } else {
+            this.data[cell.dataset.id] = cell.innerText;
+            this.formulaInput.value = cell.innerText;
+            this.markDirty();
+            this.updateItemCount();
+        }
+        
+        cell.contentEditable = false;
+        cell.classList.remove('editing');
+        this.isEditing = false;
+        cell.focus(); // Keep focus for Ready mode navigation
+    }
+
+    moveSelection(deltaCol, deltaRow) {
+        const activeCell = this.selectedCell;
+        if (!activeCell) return;
+        
+        const { colNum, row } = this.parseCellId(activeCell.dataset.id);
+        const nextCol = Math.max(1, Math.min(this.cols, colNum + deltaCol));
+        const nextRow = Math.max(1, Math.min(this.rows, row + deltaRow));
+        
+        const nextCell = this.getCellEl(nextCol, nextRow);
+        if (nextCell) {
+            nextCell.focus();
+            this.handleCellFocus(nextCell);
+            this.setSelectionRange(nextCol, nextRow, nextCol, nextRow);
+            this.updateFillHandlePosition();
         }
     }
 
@@ -1163,22 +1496,51 @@ class VibrantSheets {
     }
 
     // ─── File Import / Export ───────────────────────────────
-    openFileDialog() {
-        this.fileInput.value = ''; // Reset so same file can be reopened
-        this.fileInput.click();
+    async openFileDialog() {
+        if ('showOpenFilePicker' in window) {
+            try {
+                const [handle] = await window.showOpenFilePicker({
+                    types: [
+                        {
+                            description: 'VibrantSheets / Excel Files',
+                            accept: {
+                                'application/json': ['.vsht'],
+                                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+                                'text/csv': ['.csv', '.tsv', '.txt']
+                            }
+                        }
+                    ],
+                    multiple: false
+                });
+                const file = await handle.getFile();
+                this.processFile(file, handle);
+            } catch (err) {
+                if (err.name === 'AbortError') return;
+                console.error('File Picker failed, falling back:', err);
+                this.fileInput.click();
+            }
+        } else {
+            this.fileInput.click();
+        }
     }
 
     handleFileSelect(e) {
         const file = e.target.files[0];
         if (!file) return;
+        this.processFile(file, null);
+    }
 
+    processFile(file, handle = null) {
         // Check if there's existing data
         const hasData = Object.keys(this.data).some(k => this.data[k] && this.data[k].trim() !== '');
         if (hasData) {
-            if (!confirm('기존 데이터가 있거나 작업 중인 내용이 덮어씌워질 수 있습니다. 계속할까요?\n(Existing data may be overwritten. Continue?)')) {
+            if (!confirm('작업 중인 내용이 덮어씌워질 수 있습니다. 계속할까요?\n(Unsaved changes will be lost. Continue?)')) {
                 return;
             }
         }
+
+        // Confirmation passed: update handle and process
+        this.fileHandle = handle;
 
         const extension = file.name.split('.').pop().toLowerCase();
         const reader = new FileReader();
@@ -1190,7 +1552,6 @@ class VibrantSheets {
                 } else if (extension === 'vsht') {
                     this.importVSHT(event.target.result);
                 } else {
-                    // Fallback to text parsing (CSV/TSV/TXT)
                     this.importFromText(event.target.result);
                 }
 
@@ -1201,7 +1562,7 @@ class VibrantSheets {
                 }
             } catch (err) {
                 console.error('File import failed:', err);
-                alert('파일을 불러오는 데 실패했습니다. 지원되는 형식인지 확인해 주세요.\n(Failed to load file. Please check the format.)');
+                alert('파일을 불러오지 못했습니다.');
             }
         };
 
@@ -1223,6 +1584,7 @@ class VibrantSheets {
         if (doc.colWidths) this.colWidths = doc.colWidths;
         if (doc.rowHeights) this.rowHeights = doc.rowHeights;
         this.data = doc.data || {};
+        this.cellStyles = doc.cellStyles || {};
 
         // Re-render or Refresh UI
         this.refreshGridUI();
@@ -1252,6 +1614,13 @@ class VibrantSheets {
                 const cellId = `${this.numberToCol(j + 1)}${i + 1}`;
                 const val = cellValue === null || cellValue === undefined ? '' : String(cellValue);
                 this.data[cellId] = val;
+
+                // Attempt to extract styles from worksheet cell object
+                const cellRef = XLSX.utils.encode_cell({ r: i, c: j });
+                const wsCell = worksheet[cellRef];
+                if (wsCell && wsCell.s) {
+                    this.mapXlsxStyleToInternal(cellId, wsCell.s);
+                }
             });
         });
 
@@ -1365,25 +1734,38 @@ class VibrantSheets {
         return ',';
     }
 
-    async exportFile() {
-        // Prepare VSHT Data
-        const vshtData = {
-            version: "1.0",
-            title: document.querySelector('.filename')?.innerText || 'Untitled',
-            data: this.data,
-            colWidths: this.colWidths,
-            rowHeights: this.rowHeights,
-            rows: this.rows,
-            cols: this.cols
-        };
+    async saveFile() {
+        if (!this.fileHandle) {
+            return this.saveFileAs();
+        }
 
-        const jsonString = JSON.stringify(vshtData, null, 2);
+        try {
+            const fileName = this.fileHandle.name;
+            const writable = await this.fileHandle.createWritable();
+            
+            if (fileName.endsWith('.xlsx')) {
+                const buffer = this.generateXLSXBuffer();
+                await writable.write(buffer);
+            } else if (fileName.endsWith('.csv')) {
+                const csvContent = this.generateCSVContent();
+                await writable.write(csvContent);
+            } else {
+                // Default to .vsht (JSON)
+                const vshtData = this.generateVSHTData();
+                await writable.write(JSON.stringify(vshtData, null, 2));
+            }
+            
+            await writable.close();
+            this.markClean();
+        } catch (err) {
+            console.error('Save failed, using Save As:', err);
+            this.saveFileAs();
+        }
+    }
 
-        // Filename
-        const filenameEl = document.querySelector('.filename');
-        const defaultName = filenameEl ? filenameEl.innerText.trim() : 'VibrantSheets';
+    async saveFileAs() {
+        const defaultName = (document.querySelector('.filename')?.innerText || 'VibrantSheets').trim();
 
-        // Try File System Access API
         if ('showSaveFilePicker' in window) {
             try {
                 const handle = await window.showSaveFilePicker({
@@ -1394,46 +1776,95 @@ class VibrantSheets {
                             accept: { 'application/json': ['.vsht'] },
                         },
                         {
+                            description: 'Excel Workbook (.xlsx)',
+                            accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
+                        },
+                        {
                             description: 'CSV File (.csv)',
                             accept: { 'text/csv': ['.csv'] },
                         }
                     ],
                 });
                 
-                const writable = await handle.createWritable();
-                const fileName = handle.name;
-                
-                if (fileName.endsWith('.csv')) {
-                    // Export as CSV
-                    const csvContent = this.generateCSVContent();
-                    await writable.write(csvContent);
-                } else {
-                    // Export as .vsht (JSON)
-                    await writable.write(jsonString);
-                }
-                
-                await writable.close();
+                this.fileHandle = handle;
+                await this.saveFile(); // Overwrite with new handle
 
+                const filenameEl = document.querySelector('.filename');
                 if (filenameEl) {
                     filenameEl.innerText = handle.name.replace(/\.[^.]+$/, '');
                 }
-                this.markClean();
-                return;
             } catch (err) {
                 if (err.name === 'AbortError') return;
-                console.error('File System Access API failed:', err);
+                console.error('Save As failed:', err);
+            }
+        } else {
+            // Legacy Fallback (Download .vsht)
+            const vshtData = this.generateVSHTData();
+            const blob = new Blob([JSON.stringify(vshtData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${defaultName}.vsht`;
+            link.click();
+            URL.revokeObjectURL(url);
+            this.markClean();
+        }
+    }
+
+    generateVSHTData() {
+        return {
+            version: "1.0",
+            title: document.querySelector('.filename')?.innerText || 'Untitled',
+            data: this.data,
+            colWidths: this.colWidths,
+            rowHeights: this.rowHeights,
+            cellStyles: this.cellStyles,
+            rows: this.rows,
+            cols: this.cols
+        };
+    }
+
+    generateXLSXBuffer() {
+        if (typeof XLSX === 'undefined') {
+            alert('Excel 라이브러리를 찾을 수 없습니다.');
+            return null;
+        }
+
+        // Find used range
+        let maxRow = 0, maxCol = 0;
+        for (const key in this.data) {
+            if (this.data[key] && this.data[key].trim() !== '') {
+                const { colNum, row } = this.parseCellId(key);
+                maxRow = Math.max(maxRow, row);
+                maxCol = Math.max(maxCol, colNum);
             }
         }
 
-        // Fallback Download
-        const blob = new Blob([jsonString], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${defaultName}.vsht`;
-        link.click();
-        URL.revokeObjectURL(url);
-        this.markClean();
+        // Create 2D array for XLSX
+        const aoa = [];
+        for (let r = 1; r <= maxRow; r++) {
+            const rowArr = [];
+            for (let c = 1; c <= maxCol; c++) {
+                const cellId = `${this.numberToCol(c)}${r}`;
+                const cellValue = this.data[cellId] || '';
+                
+                // Create SheetJS cell object with style
+                const cellObj = { v: cellValue, t: 's' };
+                const style = this.cellStyles[cellId];
+                if (style) {
+                    cellObj.s = this.mapInternalStyleToXlsx(style);
+                }
+                rowArr.push(cellObj);
+            }
+            aoa.push(rowArr);
+        }
+
+        const wb = XLSX.utils.book_new();
+        // Use aoa_to_sheet but we've provided objects instead of primitives
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+        
+        return XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
     }
 
     generateCSVContent() {
@@ -1463,13 +1894,54 @@ class VibrantSheets {
         return '\uFEFF' + rows.join('\r\n');
     }
 
+    // ─── Style Mapping Helpers ─────────────────────────────
+    mapInternalStyleToXlsx(style) {
+        const s = { font: {}, alignment: {}, fill: {} };
+        if (style.fontWeight === 'bold') s.font.bold = true;
+        if (style.fontStyle === 'italic') s.font.italic = true;
+        if (style.textDecoration === 'underline') s.font.underline = true;
+        
+        if (style.color) {
+            s.font.color = { rgb: style.color.replace('#', '') };
+        }
+        if (style.backgroundColor) {
+            s.fill.fgColor = { rgb: style.backgroundColor.replace('#', '') };
+            s.fill.patternType = 'solid';
+        }
+        if (style.textAlign) {
+            s.alignment.horizontal = style.textAlign;
+        }
+        return s;
+    }
+
+    mapXlsxStyleToInternal(cellId, s) {
+        const style = {};
+        if (s.font) {
+            if (s.font.bold) style.fontWeight = 'bold';
+            if (s.font.italic) style.fontStyle = 'italic';
+            if (s.font.underline) style.textDecoration = 'underline';
+            if (s.font.color && s.font.color.rgb) style.color = '#' + s.font.color.rgb;
+        }
+        if (s.fill && s.fill.fgColor && s.fill.fgColor.rgb) {
+            style.backgroundColor = '#' + s.fill.fgColor.rgb;
+        }
+        if (s.alignment && s.alignment.horizontal) {
+            style.textAlign = s.alignment.horizontal;
+        }
+        if (Object.keys(style).length > 0) {
+            this.cellStyles[cellId] = style;
+        }
+    }
+
     clearAllData(shouldMarkDirty = true) {
         if (this.tbody) {
             this.tbody.querySelectorAll('.cell').forEach(cell => {
                 cell.innerText = '';
+                cell.style = ''; // Clear styles
             });
         }
         this.data = {};
+        this.cellStyles = {};
         if (shouldMarkDirty) this.markDirty();
         this.updateItemCount();
     }

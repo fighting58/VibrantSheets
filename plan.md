@@ -18,10 +18,12 @@ A modern, high-performance, and visually stunning web-based spreadsheet applicat
 - 행(Row) 및 열(Column) 헤더 표시 (A, B, C... / 1, 2, 3...)
 - 셀 선택, 다중 선택 지원 (Range Selection)
 
-### 3.2 셀 편집 및 서식 (Cell Editing & Formatting)
-- 인라인 셀 편집 및 엔터/탭 키를 이용한 셀 간 이동
-- 텍스트 스타일링 (굵게, 기울임꼴, 색상, 정렬) 및 셀 배경색
-- 숫자 형식 지정 (통화, 퍼센트, 날짜)
+### 3.2 셀 편집 및 인터랙션 (Cell Editing & Interaction) ✅
+- **Excel 스타일 상태 모델**: Ready (선택), Edit (더블 클릭/F2), Enter (즉시 타이핑/덮어쓰기) 상태 구현
+- **인라인 편집**: `contenteditable`을 이용한 실시간 편집 및 방향키/엔터/탭 네비게이션
+- **시각적 선택 피드백**: 전용 오버레이 레이어를 통한 3px 두께의 선명한 셀 선택 테두리 구현
+- **스타일링 시스템**: 툴바를 통한 서식(굵게, 기울임, 밑줄, 취소선), 색상(글자, 배경), 정렬(L, C, R) 지원 ✅
+- **IME 최적화**: '상시 편집(Always-Editable)' 모델을 통해 한글 입력 시 자음/모음 분리 및 영문 혼입 완벽 방지 ✅
 
 ### 3.3 고급 인터랙션 (Advanced Interaction) ✅
 - **끌어서 채우기(Fill Handle)**: 선택 영역 우측 하단 핸들을 드래그하여 데이터 자동 채우기
@@ -40,10 +42,10 @@ A modern, high-performance, and visually stunning web-based spreadsheet applicat
 - **데이터 호환**: JSON 또는 CSV 형식으로 데이터 저장 및 불러오기
 
 ### 3.6 파일 시스템 및 외부 연동 ✅
-- **.vsht 전용 포맷**: JSON 기반의 커스텀 포맷으로 데이터, 열 너비, 행 높이 등 전체 레이아웃 완벽 보존
-- **Excel (.xlsx) 불러오기**: SheetJS 연동을 통해 실제 바이너리 엑셀 파일 직접 로드 지원
-- **CSV 불러오기/내보내기**: 리얼 파서를 통한 멀티라인(줄바꿈) 셀 완벽 복원 지원
-- **네이티브 저장**: `File System Access API`를 이용한 OS 표준 '다른 이름으로 저장' 지원 (UTF-8 BOM 포함)
+- **.vsht 전용 포맷**: JSON 기반 커스텀 포맷으로 데이터, 열 너비, 행 높이 등 레이아웃 완벽 보존
+- **Excel (.xlsx) 완벽 호환**: SheetJS를 이용한 바이너리 엑셀 파일 로드 및 내보내기 지원
+- **스마트 파일 핸들링**: `File System Access API`를 이용해 한 번 연 파일은 'Save' 시 즉시 덮어쓰기, 'Save As...' 시 포맷 선택 저장 지원
+- **CSV/TSV 지원**: UTF-8 BOM 인코딩을 적용하여 엑셀에서의 한글 깨짐 방지
 
 ### 3.7 행/열 크기 조절 및 상태 관리 ✅
 - **크기 조절**: 헤더 경계선 드래그를 통한 독립적인 너비/높이 조절
@@ -53,13 +55,19 @@ A modern, high-performance, and visually stunning web-based spreadsheet applicat
 - **Vibrant & Premium**: 유리 질감(Glassmorphism), 다크 모드 기반의 세련된 디자인
 - **Micro-interactions**: 부드러운 상태 전환 애니메이션 및 리사이즈 가이드
 
-## 5. 단계별 개발 계획 (Implementation Roadmap)
-1. **Phase 1**: 프로젝트 초기화 및 기본 레이아웃 ✅
-2. **Phase 2**: 그리드 시스템 및 키보드 네비게이션 ✅
-3. **Phase 2.5**: 다중 셀 선택, 채우기 핸들 확장, 클립보드 ✅
-4. **Phase 3**: CSV 고급 불러오기 / 내보내기 (OS 표준 저장창) ✅
-5. **Phase 4**: 행/열 크기 조절 및 실시간 상태 관리 ✅
-6. **Phase 5**: 스타일링 툴바 및 서식 적용 기능 (B, I, 색상 등) ⬅️ 다음
-7. **Phase 6**: 수식 엔진 파서 구현 및 참조 로직 연동
-8. **Phase 7**: GitHub 저장소 생성 및 코드 업로드 ✅
-9. **Special Work**: 무한 스크롤 성능 최적화 및 .vsht/.xlsx 통합 지원 ✅
+## 5. 단계별 개발 계획 (Implementation Roadmap) - 업데이트됨
+1. **Phase 1~5 Complete**: 그리드 최적화, 파일 핸들링, 고급 셀 인터랙션, 스타일링 시스템 완료 ✅
+2. **Phase 6: 행/열 제어 (Row/Column Operations)** ⬅️ **현재 목표**
+    - 행/열 삽입 및 삭제 기능 구현
+    - 셀 참조 정보 업데이트 로직 기초 설계
+4. **Phase 7: 데이터 포맷팅 (Data Formatting)**
+    - 통화, 퍼센트, 이진수, 날짜 형식 표시기 구현
+    - 소수점 자릿수 조절 기능
+5. **Phase 8: 수식 엔진 (Formula Engine)**
+    - 수식 파서 (Parser) 및 셀 참조 로직 (`=A1+B1`)
+    - 기본 함수 구현 (`SUM`, `AVG`, `COUNT`, `MIN`, `MAX`)
+6. **Phase 9: 자동 저장 및 세션 복구**
+    - `localStorage`를 이용한 비정상 종료 대비 실시간 임시 저장
+    - 최근 파일 목록 (Recent Files) 관리
+7. **Phase 10: GitHub 프로젝트 관리 및 배포 ✅ (진행 중)**
+
