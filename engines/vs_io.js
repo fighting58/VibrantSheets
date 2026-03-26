@@ -138,6 +138,26 @@
             const workbook = new ExcelJS.Workbook();
             await workbook.xlsx.load(buffer);
 
+            const normalizeCellValue = (value) => {
+                if (value === null || value === undefined) return '';
+                if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+                    return String(value);
+                }
+                if (value instanceof Date) return value;
+                if (typeof value === 'object') {
+                    if (Array.isArray(value.richText)) {
+                        return value.richText.map((part) => String(part && part.text !== undefined ? part.text : '')).join('');
+                    }
+                    if (value.text !== undefined && value.text !== null) {
+                        return String(value.text);
+                    }
+                    if (value.result !== undefined && value.result !== null) {
+                        return String(value.result);
+                    }
+                }
+                return String(value);
+            };
+
             ctx.sheets = [];
             workbook.eachSheet((worksheet, sheetIndex) => {
                 const name = worksheet.name || `Sheet${sheetIndex}`;
@@ -148,10 +168,31 @@
                 sheet.colWidths = new Array(sheet.cols).fill(100);
                 sheet.rowHeights = new Array(sheet.rows + 1).fill(25);
 
-                worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-                    row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+                // Column widths / row heights from Excel (approx px conversion)
+                for (let c = 1; c <= sheet.cols; c++) {
+                    const col = worksheet.getColumn(c);
+                    if (col && col.width) {
+                        // Excel width is roughly in character units; convert to px.
+                        sheet.colWidths[c - 1] = Math.max(30, Math.round(col.width * 7 + 10));
+                    }
+                }
+                for (let r = 1; r <= sheet.rows; r++) {
+                    const row = worksheet.getRow(r);
+                    if (row && row.height) {
+                        sheet.rowHeights[r] = Math.max(15, Math.round(row.height));
+                    }
+                }
+
+                worksheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
+                    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
                         const cellId = `${ctx.numberToCol(colNumber)}${rowNumber}`;
                         let raw = '';
+                        const hasStyle = !!(cell.font || cell.alignment || cell.fill || cell.border);
+                        const hasNumFmt = !!cell.numFmt;
+                        const hasValue = cell.value !== null && cell.value !== undefined && cell.value !== '';
+                        if (!hasValue && !hasStyle && !hasNumFmt) {
+                            return;
+                        }
 
                         if (cell.type === ExcelJS.ValueType.Formula) {
                             ctx.setRawValueForSheet(sheet, cellId, '=' + cell.formula);
@@ -161,8 +202,16 @@
                             const dd = String(cell.value.getDate()).padStart(2, '0');
                             raw = `${yyyy}-${mm}-${dd}`;
                             ctx.setRawValueForSheet(sheet, cellId, raw);
-                        } else {
-                            raw = cell.value === null || cell.value === undefined ? '' : String(cell.value);
+                        } else if (hasValue) {
+                            const normalized = normalizeCellValue(cell.value);
+                            if (normalized instanceof Date) {
+                                const yyyy = normalized.getFullYear();
+                                const mm = String(normalized.getMonth() + 1).padStart(2, '0');
+                                const dd = String(normalized.getDate()).padStart(2, '0');
+                                raw = `${yyyy}-${mm}-${dd}`;
+                            } else {
+                                raw = String(normalized);
+                            }
                             ctx.setRawValueForSheet(sheet, cellId, raw);
                         }
                         if (cell.numFmt) {
@@ -174,23 +223,89 @@
                     });
                 });
 
-                const mergeRefs = new Set();
+                const normalizeMergeEntry = (entry) => {
+                    if (!entry) return null;
+                    if (typeof entry === 'string') return ctx.parseRangeRef(entry);
+                    if (entry.range) return ctx.parseRangeRef(entry.range);
+                    if (entry.address) return ctx.parseRangeRef(entry.address);
+                    if (entry.model && entry.model.top !== undefined) {
+                        const m = entry.model;
+                        return {
+                            startCol: m.left,
+                            startRow: m.top,
+                            endCol: m.right,
+                            endRow: m.bottom
+                        };
+                    }
+                    if (entry.top !== undefined && entry.left !== undefined) {
+                        return {
+                            startCol: entry.left,
+                            startRow: entry.top,
+                            endCol: entry.right,
+                            endRow: entry.bottom
+                        };
+                    }
+                    if (entry.tl && entry.br) {
+                        return {
+                            startCol: entry.tl.col,
+                            startRow: entry.tl.row,
+                            endCol: entry.br.col,
+                            endRow: entry.br.row
+                        };
+                    }
+                    return null;
+                };
+
+                const mergeList = [];
                 if (worksheet.model && Array.isArray(worksheet.model.merges)) {
-                    worksheet.model.merges.forEach(ref => mergeRefs.add(ref));
+                    worksheet.model.merges.forEach(ref => mergeList.push(ref));
                 }
                 if (worksheet._merges) {
                     if (worksheet._merges instanceof Map) {
-                        Array.from(worksheet._merges.keys()).forEach(ref => mergeRefs.add(ref));
+                        Array.from(worksheet._merges.values()).forEach(ref => mergeList.push(ref));
                     } else if (Array.isArray(worksheet._merges)) {
-                        worksheet._merges.forEach(ref => mergeRefs.add(ref));
+                        worksheet._merges.forEach(ref => mergeList.push(ref));
                     } else {
-                        Object.keys(worksheet._merges).forEach(ref => mergeRefs.add(ref));
+                        Object.keys(worksheet._merges).forEach(key => mergeList.push(worksheet._merges[key]));
                     }
                 }
 
-                sheet.mergedRanges = Array.from(mergeRefs)
-                    .map((ref) => ctx.parseRangeRef(ref))
-                    .filter(Boolean);
+                const dedupe = new Set();
+                sheet.mergedRanges = mergeList
+                    .map(normalizeMergeEntry)
+                    .filter(Boolean)
+                    .filter((m) => {
+                        const key = `${m.startCol},${m.startRow},${m.endCol},${m.endRow}`;
+                        if (dedupe.has(key)) return false;
+                        dedupe.add(key);
+                        return true;
+                    });
+
+                // Ensure grid size covers merged ranges
+                let maxMergeRow = 0;
+                let maxMergeCol = 0;
+                sheet.mergedRanges.forEach((range) => {
+                    const normalized = ctx.normalizeMergedRangeEntry(range);
+                    if (!normalized) return;
+                    maxMergeRow = Math.max(maxMergeRow, normalized.endRow);
+                    maxMergeCol = Math.max(maxMergeCol, normalized.endCol);
+                });
+                if (maxMergeRow > sheet.rows) {
+                    for (let r = sheet.rows + 1; r <= maxMergeRow; r++) {
+                        sheet.rowHeights[r] = 25;
+                    }
+                    sheet.rows = maxMergeRow;
+                }
+                if (maxMergeCol > sheet.cols) {
+                    for (let c = sheet.cols + 1; c <= maxMergeCol; c++) {
+                        sheet.colWidths[c - 1] = 100;
+                    }
+                    sheet.cols = maxMergeCol;
+                }
+
+                if (sheet.printSettings == null) {
+                    sheet.printSettings = ctx.defaultPrintSettings();
+                }
 
                 ctx.sheets.push(sheet);
             });
@@ -386,7 +501,8 @@
                     cellFormats: sheet.cellFormats,
                     cellFormulas: sheet.cellFormulas,
                     cellBorders: sheet.cellBorders || {},
-                    mergedRanges: sheet.mergedRanges || []
+                    mergedRanges: sheet.mergedRanges || [],
+                    printSettings: sheet.printSettings || ctx.defaultPrintSettings()
                 })),
                 activeSheetIndex: ctx.activeSheetIndex
             };
@@ -423,35 +539,51 @@
             const wb = new ExcelJS.Workbook();
             ctx.sheets.forEach((sheet, index) => {
                 const ws = wb.addWorksheet(sheet.name || `Sheet${index + 1}`);
+                if (ws.properties) {
+                    // Keep worksheet descent metadata in a safe Excel-compatible range.
+                    ws.properties.dyDescent = 0.25;
+                }
                 const { maxRow, maxCol } = VSIO.getUsedRangeForSheet(ctx, sheet);
 
                 for (let r = 1; r <= maxRow; r++) {
                     for (let c = 1; c <= maxCol; c++) {
                         const cellId = `${ctx.numberToCol(c)}${r}`;
                         const rawValue = ctx.getRawValueForSheet(sheet, cellId);
+                        const rawText = rawValue == null ? '' : String(rawValue);
+                        const rawTrim = rawText.trim();
                         const format = ctx.getCellFormatForSheet(sheet, cellId);
-                        const numericValue = ctx.parseNumberFromRaw(rawValue, format.type);
-                        const dateValue = ctx.parseDateFromRaw(rawValue);
+                        const numericValue = ctx.parseNumberFromRaw(rawText, format.type);
+                        const dateValue = ctx.parseDateFromRaw(rawText);
+                        const isStrictNumericLiteral = (() => {
+                            if (!rawTrim) return false;
+                            const normalized = rawTrim.replace(/,/g, '');
+                            return /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(normalized);
+                        })();
+                        const allowNumericByFormat =
+                            format.type === 'number' ||
+                            format.type === 'currency' ||
+                            format.type === 'percentage' ||
+                            (format.type === 'general' && isStrictNumericLiteral);
 
                         const cell = ws.getCell(r, c);
                         if (format.type === 'text') {
-                            cell.value = rawValue;
+                            if (rawText !== '') cell.value = rawText;
                             cell.numFmt = '@';
-                        } else if (rawValue.trim().startsWith('=')) {
-                            const formula = rawValue.trim().slice(1);
+                        } else if (rawTrim.startsWith('=')) {
+                            const formula = rawTrim.slice(1);
                             const result = ctx.formulaEngine
-                                ? ctx.formulaEngine.evaluate(rawValue, ctx.getFormulaContext(), new Set())
+                                ? ctx.formulaEngine.evaluate(rawTrim, ctx.getFormulaContext(), new Set())
                                 : undefined;
                             cell.value = { formula, result: result === '#ERROR' ? undefined : result };
                         } else if (format.type === 'date' && dateValue) {
                             cell.value = dateValue;
                             cell.numFmt = 'yyyy-mm-dd';
-                        } else if (numericValue !== null && format.type !== 'date' && format.type !== 'text') {
+                        } else if (numericValue !== null && allowNumericByFormat) {
                             cell.value = numericValue;
                             const numFmt = ctx.getNumFmtFromFormat(format);
                             if (numFmt) cell.numFmt = numFmt;
                         } else {
-                            cell.value = rawValue;
+                            if (rawText !== '') cell.value = rawText;
                         }
 
                         const style = sheet.cellStyles[cellId];
@@ -463,7 +595,17 @@
                             const toExcel = (b) => {
                                 if (!b || !b.style) return null;
                                 const argb = ctx.hexToArgb(b.color || '#000000');
-                                return { style: b.style, color: argb ? { argb } : undefined };
+                                let style = b.style;
+                                if (style === 'solid') {
+                                    if (b.width >= 3) style = 'thick';
+                                    else if (b.width >= 2) style = 'medium';
+                                    else style = 'thin';
+                                } else if (style === 'dashed') {
+                                    style = b.width >= 2 ? 'mediumDashed' : 'dashed';
+                                } else if (style === 'dotted') {
+                                    style = 'dotted';
+                                }
+                                return { style, color: argb ? { argb } : undefined };
                             };
                             cell.border = {
                                 top: toExcel(border.top),
@@ -517,7 +659,8 @@
                                 cellObj = { v: ctx.toExcelDateSerial(dateValue), t: 'n', z: 'yyyy-mm-dd' };
                             } else if (format.type === 'currency' && numericValue !== null) {
                                 const d = format.decimals ?? 2;
-                                cellObj = { v: numericValue, t: 'n', z: `"₩"#,##0${d > 0 ? '.' + '0'.repeat(d) : ''}` };
+                                const currencySymbol = format.currency === 'USD' ? '$' : '₩';
+                                cellObj = { v: numericValue, t: 'n', z: `"${currencySymbol}"#,##0${d > 0 ? '.' + '0'.repeat(d) : ''}` };
                             } else if (format.type === 'percentage' && numericValue !== null) {
                                 const d = format.decimals ?? 2;
                                 cellObj = { v: numericValue, t: 'n', z: `0${d > 0 ? '.' + '0'.repeat(d) : ''}%` };

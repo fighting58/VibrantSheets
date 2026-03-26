@@ -143,3 +143,11 @@
 2. 셀 테두리 데이터 구조 설계 및 렌더링 레이어 추가
 3. 인쇄 설정 UI 및 저장 구조 설계
 4. 이미지 삽입 상태 구조 및 렌더링 레이어 설계
+
+## Border Policy (Merged Cells)
+- A merged range behaves as a single logical cell for border application.
+- outer applies only to the outer perimeter of the selection (including merged ranges).
+- inner applies only to lines between distinct logical cells. No borders are drawn inside a merged range.
+- inner-h and inner-v follow the same rule, skipping internal edges inside merged ranges.
+- If a selection intersects a merged range, the selection is expanded to include the full merged range before applying borders.
+

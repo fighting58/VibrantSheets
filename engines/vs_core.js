@@ -1,4 +1,4 @@
-class VibrantSheets {
+﻿class VibrantSheets {
     constructor() {
         this.baseRows = 50;
         this.baseCols = 26; // A to Z
@@ -28,6 +28,7 @@ class VibrantSheets {
 
         // Clipboard state
         this.clipboardData = null; // 2D array of copied values
+        this.clipboardMerges = null; // Relative merged ranges for internal paste
         this.isCut = false;
         this.cutRange = null;
 
@@ -57,6 +58,8 @@ class VibrantSheets {
         // Border selection state
         this.currentBorderStyle = 'solid-1';
         this.currentBorderType = 'all';
+        this.borderStamp = 0;
+        this.showPageBreakPreview = false;
 
         this.init();
     }
@@ -168,8 +171,35 @@ class VibrantSheets {
             cellFormulas: {},
             cellBorders: {},
             mergedRanges: [],
+            printSettings: this.defaultPrintSettings(),
             colWidths: new Array(this.baseCols).fill(100),
             rowHeights: new Array(this.baseRows + 1).fill(25)
+        };
+    }
+
+    defaultPrintSettings() {
+        return {
+            range: 'current',
+            printArea: null,
+            paper: 'A4',
+            orientation: 'portrait',
+            margins: { top: 10, right: 10, bottom: 10, left: 10 },
+            scale: 100,
+            fitTo: { enabled: false, widthPages: 1, heightPages: 1 },
+            headerFooter: {
+                enabled: false,
+                show: {
+                    headerLeft: true,
+                    headerCenter: true,
+                    headerRight: true,
+                    footerLeft: true,
+                    footerCenter: true,
+                    footerRight: true
+                },
+                header: { left: '', center: '', right: '' },
+                footer: { left: '', center: '', right: '' }
+            },
+            repeat: { rows: '', cols: '' }
         };
     }
 
@@ -188,10 +218,14 @@ class VibrantSheets {
         
         this.resizeGuide = this.createOverlay('resize-guide');
         this.fillPreview = this.createOverlay('fill-preview');
+        this.pageBreakOverlay = this.createOverlay('page-break-overlay');
 
         this.renderGrid();
         this.renderSheetTabs();
         this.setupEventListeners();
+        this.updatePrintOrientationIndicator();
+        this.updatePrintAreaToggleUI();
+        this.updatePrintControlsState();
     }
 
     createOverlay(className) {
@@ -200,12 +234,12 @@ class VibrantSheets {
         div.style.display = 'none';
         this.container.appendChild(div);
         if (className === 'fill-preview') {
-            div.innerHTML = '<span class="fill-preview-label">시리즈 채우기</span><span class="fill-preview-hint">Alt: 값 복사</span>';
+            div.innerHTML = '<span class="fill-preview-label">?쒕━利?梨꾩슦湲?/span><span class="fill-preview-hint">Alt: 媛?蹂듭궗</span>';
         }
         return div;
     }
 
-    // ─── Utility ───────────────────────────────────────────
+    // ??? Utility ???????????????????????????????????????????
     colToNumber(col) {
         let num = 0;
         for (let i = 0; i < col.length; i++) {
@@ -292,7 +326,12 @@ class VibrantSheets {
         let decimals = this.normalizeDecimals(format?.decimals);
         if (decimals === null) decimals = this.getDefaultDecimalsByType(type);
         if (type === 'date' || type === 'text') decimals = null;
-        return { type, decimals };
+        let currency = null;
+        if (type === 'currency') {
+            const inputCurrency = String(format?.currency || '').toUpperCase();
+            currency = ['KRW', 'USD'].includes(inputCurrency) ? inputCurrency : 'KRW';
+        }
+        return { type, decimals, currency };
     }
 
     isDefaultFormat(format) {
@@ -400,9 +439,10 @@ class VibrantSheets {
         if (numeric === null) return raw;
 
         if (format.type === 'currency') {
+            const currency = format.currency || 'KRW';
             return new Intl.NumberFormat('ko-KR', {
                 style: 'currency',
-                currency: 'KRW',
+                currency,
                 minimumFractionDigits: decimals,
                 maximumFractionDigits: decimals
             }).format(numeric);
@@ -644,7 +684,7 @@ class VibrantSheets {
         if (cell) this.renderCellValue(cell);
     }
 
-    // ─── Grid Rendering ────────────────────────────────────
+    // ??? Grid Rendering ????????????????????????????????????
     renderGrid() {
         const table = document.createElement('table');
         table.className = 'spreadsheet-table';
@@ -700,6 +740,7 @@ class VibrantSheets {
             if (!this.rowHeights[i]) this.rowHeights[i] = 25;
             const tr = document.createElement('tr');
             tr.style.height = `${this.rowHeights[i]}px`;
+            tr.dataset.rowIndex = String(i);
             
             const rowHeader = document.createElement('td');
             rowHeader.className = 'cell header row-header';
@@ -735,7 +776,7 @@ class VibrantSheets {
         }
     }
 
-    // ─── Event Listeners ───────────────────────────────────
+    // ??? Event Listeners ???????????????????????????????????
     setupEventListeners() {
         const fillSkip = document.getElementById('fill-skip-blanks');
         if (fillSkip) {
@@ -749,6 +790,7 @@ class VibrantSheets {
             customBtn.addEventListener('click', () => this.openCustomListModal());
         }
         this.bindCustomListModal();
+        this.bindPrintSettingsModal();
         document.addEventListener('keydown', (e) => {
             if (!this.isFilling) return;
             if (e.altKey) {
@@ -813,7 +855,7 @@ class VibrantSheets {
                     // Update trigger UI preview
                     let previewHtml = '';
                     if (val === 'none') {
-                        previewHtml = '<div style="font-size: 0.75rem; color:#94a3b8; width: 100%; text-align: center;">None ✕</div>';
+                        previewHtml = '<div style="font-size: 0.75rem; color:#94a3b8; width: 100%; text-align: center;">None</div>';
                     } else {
                         previewHtml = opt.querySelector('svg').outerHTML;
                     }
@@ -846,6 +888,23 @@ class VibrantSheets {
                 this.applyBorder(type, this.currentBorderStyle, color);
             });
         });
+
+        const printBtn = document.getElementById('btn-print-settings');
+        if (printBtn) {
+            printBtn.addEventListener('click', () => this.openPrintSettingsModal());
+        }
+        const orientationBtn = document.getElementById('btn-print-orientation');
+        if (orientationBtn) {
+            orientationBtn.addEventListener('click', () => this.togglePrintOrientationFromRibbon());
+        }
+        const printAreaToggleBtn = document.getElementById('btn-print-area-toggle');
+        if (printAreaToggleBtn) {
+            printAreaToggleBtn.addEventListener('click', () => this.togglePrintAreaFromRibbon());
+        }
+        const pageBreakBtn = document.getElementById('btn-page-break-preview');
+        if (pageBreakBtn) {
+            pageBreakBtn.addEventListener('click', () => this.togglePageBreakPreview());
+        }
 
         // Phase 7: Data formatting
         document.getElementById('format-type').addEventListener('change', (e) => {
@@ -963,11 +1022,13 @@ class VibrantSheets {
             this.updateSelectionOverlay();
             this.updateRangeVisual();
             this.updateFillHandlePosition();
+            this.updatePageBreakPreview();
         });
         this.container.addEventListener('scroll', () => {
              this.updateSelectionOverlay();
              this.updateRangeVisual();
              this.updateFillHandlePosition();
+             this.updatePageBreakPreview();
         }, { passive: true });
         // Global keyboard shortcuts (clipboard, delete)
         document.addEventListener('keydown', (e) => {
@@ -1013,6 +1074,10 @@ class VibrantSheets {
 
         // Resize Handlers
         this.setupResizeHandlers();
+
+        // Print visibility/layout handling
+        window.addEventListener('beforeprint', () => this.handleBeforePrint());
+        window.addEventListener('afterprint', () => this.handleAfterPrint());
     }
 
     renderSheetTabs() {
@@ -1165,9 +1230,13 @@ class VibrantSheets {
             cell.focus({ preventScroll: true });
             this.handleCellFocus(cell);
         }
+        this.updatePrintOrientationIndicator();
+        this.updatePrintAreaToggleUI();
+        this.updatePrintControlsState();
+        this.updatePageBreakPreview();
     }
 
-    // ─── Resize Handlers ─────────────────────────────────
+    // ??? Resize Handlers ?????????????????????????????????
     setupResizeHandlers() {
         const EDGE_ZONE = 5; // px from edge to trigger resize cursor
 
@@ -1337,7 +1406,7 @@ class VibrantSheets {
         }
     }
 
-    // ─── Cell Focus / Input ────────────────────────────────
+    // ??? Cell Focus / Input ????????????????????????????????
     handleCellFocus(cell) {
         const cellId = cell.dataset.id;
         const normalizedId = this.normalizeMergedCellId(cellId);
@@ -1363,7 +1432,7 @@ class VibrantSheets {
             cell.contentEditable = true;
             
             // CRITICAL for IME: Select all content so first keystroke replaces it naturally
-            // This prevents the "rㅏ" bug where the first IME character is lost during manual clearing.
+            // This prevents the IME first-character loss bug during manual clearing.
             const range = document.createRange();
             range.selectNodeContents(cell);
             const sel = window.getSelection();
@@ -1403,7 +1472,7 @@ class VibrantSheets {
         }
     }
 
-    // ─── Styling ───────────────────────────────────────────
+    // ??? Styling ???????????????????????????????????????????
     toggleStyle(prop, activeValue, defaultValue) {
         const targetIds = this.getSelectionTargetIds();
         if (targetIds.length === 0) return;
@@ -1543,13 +1612,83 @@ class VibrantSheets {
             const tempId = `${this.numberToCol(c)}${r}`;
             return this.cellBorders?.[tempId]?.[s];
         };
+        const getTs = (b) => (b && typeof b._ts === 'number' ? b._ts : 0);
+        const pickLatest = (...borders) => {
+            let best = null;
+            let bestTs = -1;
+            borders.forEach((b) => {
+                if (!b) return;
+                const ts = getTs(b);
+                if (ts >= bestTs) {
+                    best = b;
+                    bestTs = ts;
+                }
+            });
+            return best;
+        };
+        
+        const merge = cell.classList.contains('merge-anchor') ? this.getMergedRangeAt(colNum, rowNum) : null;
+        const range = merge ? merge : { startCol: colNum, endCol: colNum, startRow: rowNum, endRow: rowNum };
 
-        // 자신의 테두리와 인접 셀의 테두리를 양방향으로 평가하여, 하나라도 있으면 그 테두리를 양쪽 셀 렌더링에 모두 적용함
-        // (Webkit 계열의 border-collapse 충돌 시 특정 방향(bottom, right)이 우선시되어 지워지는 현상 방지)
-        const topBorder = getBorder(colNum, rowNum, 'top') || (rowNum > 1 ? getBorder(colNum, rowNum - 1, 'bottom') : null);
-        const rightBorder = getBorder(colNum, rowNum, 'right') || (colNum < this.cols ? getBorder(colNum + 1, rowNum, 'left') : null);
-        const bottomBorder = getBorder(colNum, rowNum, 'bottom') || (rowNum < this.rows ? getBorder(colNum, rowNum + 1, 'top') : null);
-        const leftBorder = getBorder(colNum, rowNum, 'left') || (colNum > 1 ? getBorder(colNum - 1, rowNum, 'right') : null);
+        const getAnyNeighborBorder = (side) => {
+            let best = null;
+            if (!merge) return null;
+            if (side === 'top' && range.startRow > 1) {
+                const r = range.startRow - 1;
+                for (let c = range.startCol; c <= range.endCol; c++) {
+                    const b = getBorder(c, r, 'bottom');
+                    best = pickLatest(best, b);
+                }
+            }
+            if (side === 'bottom' && range.endRow < this.rows) {
+                const r = range.endRow + 1;
+                for (let c = range.startCol; c <= range.endCol; c++) {
+                    const b = getBorder(c, r, 'top');
+                    best = pickLatest(best, b);
+                }
+            }
+            if (side === 'left' && range.startCol > 1) {
+                const c = range.startCol - 1;
+                for (let r = range.startRow; r <= range.endRow; r++) {
+                    const b = getBorder(c, r, 'right');
+                    best = pickLatest(best, b);
+                }
+            }
+            if (side === 'right' && range.endCol < this.cols) {
+                const c = range.endCol + 1;
+                for (let r = range.startRow; r <= range.endRow; r++) {
+                    const b = getBorder(c, r, 'left');
+                    best = pickLatest(best, b);
+                }
+            }
+            return best;
+        };
+
+        const neighborTop = getAnyNeighborBorder('top');
+        const neighborRight = getAnyNeighborBorder('right');
+        const neighborBottom = getAnyNeighborBorder('bottom');
+        const neighborLeft = getAnyNeighborBorder('left');
+
+        const topBorder = pickLatest(
+            getBorder(colNum, rowNum, 'top'),
+            rowNum > 1 ? getBorder(colNum, rowNum - 1, 'bottom') : null,
+            neighborTop
+        );
+        const rightBorder = pickLatest(
+            getBorder(colNum, rowNum, 'right'),
+            colNum < this.cols ? getBorder(colNum + 1, rowNum, 'left') : null,
+            neighborRight
+        );
+        const bottomBorder = pickLatest(
+            getBorder(colNum, rowNum, 'bottom'),
+            rowNum < this.rows ? getBorder(colNum, rowNum + 1, 'top') : null,
+            neighborBottom
+        );
+        const leftBorder = pickLatest(
+            getBorder(colNum, rowNum, 'left'),
+            colNum > 1 ? getBorder(colNum - 1, rowNum, 'right') : null,
+            neighborLeft
+        );
 
         const toCss = (b) => b ? `${b.width || 1}px ${b.style || 'solid'} ${b.color || '#000000'}` : null;
         
@@ -1565,6 +1704,30 @@ class VibrantSheets {
         applyOrRemove('right', toCss(rightBorder));
         applyOrRemove('bottom', toCss(bottomBorder));
         applyOrRemove('left', toCss(leftBorder));
+
+        // For merged cells, thin borders can be lost due to border-collapse. Reinforce with inset shadow.
+        if (merge) {
+            const shadows = [];
+            const addShadow = (side, b) => {
+                if (!b || b.style !== 'solid' || (b.width || 1) !== 1) return;
+                const color = b.color || '#000000';
+                if (side === 'top') shadows.push(`inset 0 1px 0 0 ${color}`);
+                if (side === 'bottom') shadows.push(`inset 0 -1px 0 0 ${color}`);
+                if (side === 'left') shadows.push(`inset 1px 0 0 0 ${color}`);
+                if (side === 'right') shadows.push(`inset -1px 0 0 0 ${color}`);
+            };
+            addShadow('top', topBorder);
+            addShadow('right', rightBorder);
+            addShadow('bottom', bottomBorder);
+            addShadow('left', leftBorder);
+            if (shadows.length > 0) {
+                cell.style.boxShadow = shadows.join(', ');
+            } else if (cell.style.boxShadow) {
+                cell.style.boxShadow = '';
+            }
+        } else if (cell.style.boxShadow) {
+            cell.style.boxShadow = '';
+        }
     }
 
     updateSelectionOverlay() {
@@ -1714,7 +1877,7 @@ class VibrantSheets {
 
     // Find/Replace methods are loaded from engines/vs_find.js
 
-    // ─── Range Selection ───────────────────────────────────
+    // ??? Range Selection ???????????????????????????????????
     isNearResizeEdge(headerEl, e, type) {
         const EDGE_ZONE = 5;
         const rect = headerEl.getBoundingClientRect();
@@ -1799,8 +1962,8 @@ class VibrantSheets {
             }
         }
 
-        // Enter Edit mode if already selected (second click)
-        if (this.selectedCell === cell && !this.isEditing && !e.shiftKey) {
+        // Enter Edit mode only on double click (single click should allow drag selection)
+        if (this.selectedCell === cell && !this.isEditing && !e.shiftKey && e.detail >= 2) {
             this.enterEditMode(cell);
             return;
         }
@@ -1913,6 +2076,7 @@ class VibrantSheets {
             this.rangeOverlay.style.width = `${brRect.right - tlRect.left}px`;
             this.rangeOverlay.style.height = `${brRect.bottom - tlRect.top}px`;
         }
+        this.updatePageBreakPreview();
     }
 
     getSelectedCells() {
@@ -2005,6 +2169,33 @@ class VibrantSheets {
         this.markDirty();
     }
 
+    mergeRangeSilently(range) {
+        if (!range) return;
+        const normalized = this.expandRangeToIncludeMerges(range);
+        const isSingleCell = normalized.startCol === normalized.endCol && normalized.startRow === normalized.endRow;
+        if (isSingleCell) return;
+
+        const existing = this.getNormalizedMergedRanges();
+        const keep = existing.filter((merge) => !this.rangesIntersect(merge, normalized));
+        this.mergedRanges = keep;
+
+        for (let r = normalized.startRow; r <= normalized.endRow; r++) {
+            for (let c = normalized.startCol; c <= normalized.endCol; c++) {
+                if (r === normalized.startRow && c === normalized.startCol) continue;
+                const cellId = `${this.numberToCol(c)}${r}`;
+                delete this.data[cellId];
+                delete this.cellFormulas[cellId];
+            }
+        }
+
+        this.mergedRanges = [
+            ...this.getNormalizedMergedRanges(),
+            normalized
+        ];
+
+        this.applyMergesToGrid();
+    }
+
     applyBorder(type, styleStr, color) {
         const range = this.getEffectiveRange();
         if (!range) return;
@@ -2024,7 +2215,8 @@ class VibrantSheets {
         const border = {
             style: style,
             color: color || '#000000',
-            width: width
+            width: width,
+            _ts: ++this.borderStamp
         };
 
         const applySide = (cellId, side, value) => {
@@ -2037,6 +2229,39 @@ class VibrantSheets {
                     delete this.cellBorders[cellId];
                 }
             }
+        };
+        const applyMirrorThin = (side, r, c, value) => {
+            if (!value || value.style !== 'solid' || (value.width || 1) !== 1) return;
+            let mr = r;
+            let mc = c;
+            let mirrorSide = null;
+            if (side === 'top') { mr = r - 1; mirrorSide = 'bottom'; }
+            if (side === 'bottom') { mr = r + 1; mirrorSide = 'top'; }
+            if (side === 'left') { mc = c - 1; mirrorSide = 'right'; }
+            if (side === 'right') { mc = c + 1; mirrorSide = 'left'; }
+            if (mr < 1 || mc < 1 || mr > this.rows || mc > this.cols) return;
+            const mirrorId = `${this.numberToCol(mc)}${mr}`;
+            applySide(mirrorId, mirrorSide, value);
+        };
+        const applyToAdjacentMerged = (side, r, c, value) => {
+            if (!value) return;
+            let nr = r;
+            let nc = c;
+            let targetSide = null;
+            if (side === 'top') { nr = r - 1; targetSide = 'bottom'; }
+            if (side === 'bottom') { nr = r + 1; targetSide = 'top'; }
+            if (side === 'left') { nc = c - 1; targetSide = 'right'; }
+            if (side === 'right') { nc = c + 1; targetSide = 'left'; }
+            if (nr < 1 || nc < 1 || nr > this.rows || nc > this.cols) return;
+            const merge = this.getMergedRangeAt(nc, nr);
+            if (!merge) return;
+            // Ensure this border is on the merged range boundary
+            if (targetSide === 'top' && nr !== merge.startRow) return;
+            if (targetSide === 'bottom' && nr !== merge.endRow) return;
+            if (targetSide === 'left' && nc !== merge.startCol) return;
+            if (targetSide === 'right' && nc !== merge.endCol) return;
+            const anchorId = `${this.numberToCol(merge.startCol)}${merge.startRow}`;
+            applySide(anchorId, targetSide, value);
         };
 
         const sidesForType = () => {
@@ -2070,7 +2295,7 @@ class VibrantSheets {
                 if (side === 'top') return r > expanded.startRow;
                 return false;
             }
-            // 특정 모서리 단일 테두리에 대해서는 전체 선택 영역의 외곽 가장자리만 적용
+            // Apply only the boundary edge for single-side borders.
             if (type === 'top') return r === expanded.startRow;
             if (type === 'bottom') return r === expanded.endRow;
             if (type === 'left') return c === expanded.startCol;
@@ -2096,7 +2321,12 @@ class VibrantSheets {
                         )
                         : true;
                     if (isBoundary && shouldApply(side, r, c, merge)) {
-                        applySide(targetId, side, (type === 'none' || style === 'none') ? null : border);
+                        const value = (type === 'none' || style === 'none') ? null : border;
+                        applySide(targetId, side, value);
+                        if (value) {
+                            applyMirrorThin(side, r, c, value);
+                            applyToAdjacentMerged(side, r, c, value);
+                        }
                     }
                 });
             }
@@ -2185,7 +2415,7 @@ class VibrantSheets {
         this.fillHandle.style.top = `${rect.bottom - containerRect.top + this.container.scrollTop - 5}px`;
     }
 
-    // ─── Fill Handle Logic ─────────────────────────────────
+    // ??? Fill Handle Logic ?????????????????????????????????
     handleFillStart(e) {
         const range = this.getEffectiveRange();
         if (!range) return;
@@ -2362,7 +2592,7 @@ class VibrantSheets {
     }
 
     async confirmFillSeries() {
-        return await this.showConfirmAsyncNextTick('패턴이 감지되었습니다. 시리즈 채우기를 적용할까요?\n취소를 누르면 값 복사로 채웁니다.');
+        return await this.showConfirmAsyncNextTick('연속된 값이 감지되었습니다. 시리즈 채우기를 적용할까요?\n취소를 누르면 값 복사로 채웁니다.');
     }
 
     showConfirmAsyncNextTick(message) {
@@ -2650,6 +2880,917 @@ class VibrantSheets {
         input.focus();
     }
 
+    getPrintSettings() {
+        if (!this.activeSheet.printSettings) {
+            this.activeSheet.printSettings = this.defaultPrintSettings();
+        }
+        return this.activeSheet.printSettings;
+    }
+
+    bindPrintSettingsModal() {
+        const modal = document.getElementById('print-settings-modal');
+        const btnClose = document.getElementById('print-close');
+        const btnCancel = document.getElementById('print-cancel');
+        const btnApply = document.getElementById('print-apply');
+        const btnPrint = document.getElementById('print-run');
+        if (!modal || !btnClose || !btnCancel || !btnApply || !btnPrint) return;
+
+        const close = () => { modal.style.display = 'none'; };
+        btnClose.addEventListener('click', close);
+        btnCancel.addEventListener('click', close);
+
+        btnApply.addEventListener('click', () => {
+            this.applyPrintSettingsFromUI();
+        });
+        btnPrint.addEventListener('click', () => {
+            this.applyPrintSettingsFromUI();
+            const settings = this.getPrintSettings();
+            if (!settings.printArea) {
+                alert('인쇄영역이 설정되지 않았습니다. 리본의 Print Area 버튼으로 인쇄영역을 먼저 설정해 주세요.');
+                this.updateStatusBadge('Error: Print area is required');
+                return;
+            }
+            close();
+            window.print();
+        });
+    }
+
+    openPrintSettingsModal() {
+        const modal = document.getElementById('print-settings-modal');
+        if (!modal) return;
+        const settings = this.getPrintSettings();
+        this.updatePrintOrientationIndicator();
+        this.updatePrintRunButtonState();
+
+        const setRadio = (name, value) => {
+            const el = document.querySelector(`input[name="${name}"][value="${value}"]`);
+            if (el) el.checked = true;
+        };
+
+        setRadio('print-range', settings.range);
+        setRadio('print-orientation', settings.orientation);
+        setRadio('print-scale-mode', settings.fitTo.enabled ? 'fit' : 'scale');
+
+        const paper = document.getElementById('print-paper');
+        if (paper) paper.value = settings.paper;
+
+        const marginMap = [
+            ['print-margin-top', settings.margins.top],
+            ['print-margin-right', settings.margins.right],
+            ['print-margin-bottom', settings.margins.bottom],
+            ['print-margin-left', settings.margins.left]
+        ];
+        marginMap.forEach(([id, val]) => {
+            const el = document.getElementById(id);
+            if (el) el.value = val;
+        });
+
+        const scale = document.getElementById('print-scale');
+        if (scale) scale.value = settings.scale;
+        const fitW = document.getElementById('print-fit-width');
+        const fitH = document.getElementById('print-fit-height');
+        if (fitW) fitW.value = settings.fitTo.widthPages;
+        if (fitH) fitH.value = settings.fitTo.heightPages;
+
+        const hfEnabled = document.getElementById('print-hf-enabled');
+        if (hfEnabled) hfEnabled.checked = settings.headerFooter.enabled;
+        const show = settings.headerFooter.show || {};
+        const setChecked = (id, fallback = true) => {
+            const el = document.getElementById(id);
+            if (el) el.checked = show[id.replace('print-show-', '').replace(/-([a-z])/g, (_, c) => c.toUpperCase())] ?? fallback;
+        };
+        setChecked('print-show-header-left', true);
+        setChecked('print-show-header-center', true);
+        setChecked('print-show-header-right', true);
+        setChecked('print-show-footer-left', true);
+        setChecked('print-show-footer-center', true);
+        setChecked('print-show-footer-right', true);
+        const hfMap = [
+            ['print-header-left', settings.headerFooter.header.left],
+            ['print-header-center', settings.headerFooter.header.center],
+            ['print-header-right', settings.headerFooter.header.right],
+            ['print-footer-left', settings.headerFooter.footer.left],
+            ['print-footer-center', settings.headerFooter.footer.center],
+            ['print-footer-right', settings.headerFooter.footer.right]
+        ];
+        hfMap.forEach(([id, val]) => {
+            const el = document.getElementById(id);
+            if (el) el.value = val;
+        });
+
+        const repeatRows = document.getElementById('print-repeat-rows');
+        const repeatCols = document.getElementById('print-repeat-cols');
+        if (repeatRows) repeatRows.value = settings.repeat.rows;
+        if (repeatCols) repeatCols.value = settings.repeat.cols;
+
+        modal.style.display = 'flex';
+        // Defer preview render so layout sizes are available after display
+        requestAnimationFrame(() => this.renderPrintPreview());
+    }
+
+    applyPrintSettingsFromUI() {
+        const settings = this.getPrintSettings();
+        const getRadio = (name, fallback) => {
+            const el = document.querySelector(`input[name="${name}"]:checked`);
+            return el ? el.value : fallback;
+        };
+        settings.range = getRadio('print-range', settings.range);
+        if (settings.range === 'selection' && this.selectionRange) {
+            settings.selectionRange = { ...this.selectionRange };
+        }
+        settings.orientation = getRadio('print-orientation', settings.orientation);
+        const scaleMode = getRadio('print-scale-mode', settings.fitTo.enabled ? 'fit' : 'scale');
+        settings.fitTo.enabled = scaleMode === 'fit';
+
+        const paper = document.getElementById('print-paper');
+        if (paper) settings.paper = paper.value;
+
+        const marginVal = (id, fallback) => {
+            const el = document.getElementById(id);
+            const v = el ? Number(el.value) : fallback;
+            return Number.isFinite(v) ? Math.max(0, Math.min(50, v)) : fallback;
+        };
+        settings.margins.top = marginVal('print-margin-top', settings.margins.top);
+        settings.margins.right = marginVal('print-margin-right', settings.margins.right);
+        settings.margins.bottom = marginVal('print-margin-bottom', settings.margins.bottom);
+        settings.margins.left = marginVal('print-margin-left', settings.margins.left);
+
+        const scale = document.getElementById('print-scale');
+        if (scale) {
+            const v = Number(scale.value);
+            if (Number.isFinite(v)) settings.scale = Math.max(10, Math.min(200, v));
+        }
+        const fitW = document.getElementById('print-fit-width');
+        const fitH = document.getElementById('print-fit-height');
+        if (fitW) settings.fitTo.widthPages = Math.max(1, Math.min(99, Number(fitW.value) || settings.fitTo.widthPages));
+        if (fitH) settings.fitTo.heightPages = Math.max(1, Math.min(99, Number(fitH.value) || settings.fitTo.heightPages));
+
+        const hfEnabled = document.getElementById('print-hf-enabled');
+        settings.headerFooter.enabled = hfEnabled ? hfEnabled.checked : settings.headerFooter.enabled;
+        const setText = (id, fallback) => {
+            const el = document.getElementById(id);
+            return el ? String(el.value || '') : fallback;
+        };
+        settings.headerFooter.header.left = setText('print-header-left', settings.headerFooter.header.left);
+        settings.headerFooter.header.center = setText('print-header-center', settings.headerFooter.header.center);
+        settings.headerFooter.header.right = setText('print-header-right', settings.headerFooter.header.right);
+        settings.headerFooter.footer.left = setText('print-footer-left', settings.headerFooter.footer.left);
+        settings.headerFooter.footer.center = setText('print-footer-center', settings.headerFooter.footer.center);
+        settings.headerFooter.footer.right = setText('print-footer-right', settings.headerFooter.footer.right);
+        if (!settings.headerFooter.show) {
+            settings.headerFooter.show = {
+                headerLeft: true,
+                headerCenter: true,
+                headerRight: true,
+                footerLeft: true,
+                footerCenter: true,
+                footerRight: true
+            };
+        }
+        const getChecked = (id, fallback = true) => {
+            const el = document.getElementById(id);
+            return el ? !!el.checked : fallback;
+        };
+        settings.headerFooter.show.headerLeft = getChecked('print-show-header-left', true);
+        settings.headerFooter.show.headerCenter = getChecked('print-show-header-center', true);
+        settings.headerFooter.show.headerRight = getChecked('print-show-header-right', true);
+        settings.headerFooter.show.footerLeft = getChecked('print-show-footer-left', true);
+        settings.headerFooter.show.footerCenter = getChecked('print-show-footer-center', true);
+        settings.headerFooter.show.footerRight = getChecked('print-show-footer-right', true);
+
+        const repeatRows = document.getElementById('print-repeat-rows');
+        const repeatCols = document.getElementById('print-repeat-cols');
+        settings.repeat.rows = repeatRows ? String(repeatRows.value || '') : settings.repeat.rows;
+        settings.repeat.cols = repeatCols ? String(repeatCols.value || '') : settings.repeat.cols;
+        this.updatePrintOrientationIndicator();
+        this.updatePrintRunButtonState();
+        this.renderPrintPreview();
+        this.updatePageBreakPreview();
+    }
+
+    updatePrintRunButtonState() {
+        const btnPrint = document.getElementById('print-run');
+        if (!btnPrint) return;
+        const hasPrintArea = !!this.getPrintSettings().printArea;
+        btnPrint.disabled = !hasPrintArea;
+        btnPrint.title = hasPrintArea
+            ? 'Print'
+            : 'Set Print Area first';
+    }
+
+    updatePrintControlsState() {
+        const hasPrintArea = !!this.getPrintSettings().printArea;
+        const settingsBtn = document.getElementById('btn-print-settings');
+        if (settingsBtn) {
+            settingsBtn.disabled = !hasPrintArea;
+            settingsBtn.title = hasPrintArea
+                ? 'Print Settings'
+                : 'Set Print Area first';
+        }
+        this.updatePrintRunButtonState();
+    }
+
+    togglePrintOrientationFromRibbon() {
+        const settings = this.getPrintSettings();
+        settings.orientation = settings.orientation === 'landscape' ? 'portrait' : 'landscape';
+        this.markDirty();
+        this.updatePrintOrientationIndicator();
+        const selected = document.querySelector(`input[name="print-orientation"][value="${settings.orientation}"]`);
+        if (selected) selected.checked = true;
+        const modal = document.getElementById('print-settings-modal');
+        if (modal && modal.style.display !== 'none') this.renderPrintPreview();
+        this.updatePageBreakPreview();
+    }
+
+    updatePrintOrientationIndicator() {
+        const chip = document.getElementById('print-orientation-indicator');
+        const btn = document.getElementById('btn-print-orientation');
+        const settings = this.getPrintSettings();
+        const label = settings.orientation === 'landscape' ? 'Landscape' : 'Portrait';
+        if (chip) chip.innerText = label;
+        if (btn) {
+            btn.title = `Orientation: ${label}`;
+            btn.classList.toggle('active', settings.orientation === 'landscape');
+        }
+    }
+
+    handleBeforePrint() {
+        this.applyPrintPageLayout(true);
+        this.applyPrintVisibility(true);
+    }
+
+    handleAfterPrint() {
+        this.applyPrintVisibility(false);
+        this.applyPrintPageLayout(false);
+    }
+
+    applyPrintPageLayout(enable) {
+        const grid = document.getElementById('grid-container');
+        if (!this.table || !grid) return;
+
+        if (!this.printLayoutState) this.printLayoutState = {};
+
+        if (!enable) {
+            this.applyDynamicPageRule(null);
+            if (this.printLayoutState.tableZoom !== undefined) this.table.style.zoom = this.printLayoutState.tableZoom;
+            if (this.printLayoutState.tableTransformOrigin !== undefined) this.table.style.transformOrigin = this.printLayoutState.tableTransformOrigin;
+            if (this.printLayoutState.tableWidth !== undefined) this.table.style.width = this.printLayoutState.tableWidth;
+            if (this.printLayoutState.gridOverflow !== undefined) grid.style.overflow = this.printLayoutState.gridOverflow;
+            if (this.printLayoutState.gridHeight !== undefined) grid.style.height = this.printLayoutState.gridHeight;
+            return;
+        }
+
+        this.printLayoutState.tableZoom = this.table.style.zoom;
+        this.printLayoutState.tableTransformOrigin = this.table.style.transformOrigin;
+        this.printLayoutState.tableWidth = this.table.style.width;
+        this.printLayoutState.gridOverflow = grid.style.overflow;
+        this.printLayoutState.gridHeight = grid.style.height;
+
+        const settings = this.getPrintSettings();
+        const range = this.getPrintRange();
+        this.applyDynamicPageRule(settings);
+
+        const scaleFactor = this.getPrintScaleFactor(range, settings);
+        this.table.style.zoom = String(scaleFactor);
+        this.table.style.transformOrigin = 'top left';
+        this.table.style.width = '0';
+        grid.style.overflow = 'visible';
+        grid.style.height = 'auto';
+    }
+
+    applyDynamicPageRule(settings) {
+        const styleId = 'vs-print-page-style';
+        let styleEl = document.getElementById(styleId);
+        if (!styleEl) {
+            styleEl = document.createElement('style');
+            styleEl.id = styleId;
+            document.head.appendChild(styleEl);
+        }
+
+        if (!settings) {
+            styleEl.textContent = '';
+            return;
+        }
+
+        const paper = settings.paper === 'Letter' ? 'Letter' : 'A4';
+        const orientation = settings.orientation === 'landscape' ? 'landscape' : 'portrait';
+        const top = Math.max(0, Math.min(50, Number(settings.margins?.top) || 0));
+        const right = Math.max(0, Math.min(50, Number(settings.margins?.right) || 0));
+        const bottom = Math.max(0, Math.min(50, Number(settings.margins?.bottom) || 0));
+        const left = Math.max(0, Math.min(50, Number(settings.margins?.left) || 0));
+
+        styleEl.textContent = `
+@media print {
+    @page {
+        size: ${paper} ${orientation};
+        margin: ${top}mm ${right}mm ${bottom}mm ${left}mm;
+    }
+}
+`;
+    }
+
+    getPrintScaleFactor(range, settings = this.getPrintSettings()) {
+        const paperSizes = { A4: { w: 210, h: 297 }, Letter: { w: 216, h: 279 } };
+        const basePaper = paperSizes[settings.paper] || paperSizes.A4;
+        const paper = settings.orientation === 'landscape'
+            ? { w: basePaper.h, h: basePaper.w }
+            : basePaper;
+        const pxPerMm = 96 / 25.4;
+        const contentWidth = Math.max(1, this.getRangePixelSize(range).width);
+        const contentHeight = Math.max(1, this.getRangePixelSize(range).height);
+        const printableW = Math.max(1, (paper.w - settings.margins.left - settings.margins.right) * pxPerMm);
+        const printableH = Math.max(1, (paper.h - settings.margins.top - settings.margins.bottom) * pxPerMm);
+
+        let scaleFactor = settings.scale / 100;
+        if (settings.fitTo.enabled) {
+            const targetW = printableW * settings.fitTo.widthPages;
+            const targetH = printableH * settings.fitTo.heightPages;
+            scaleFactor = Math.min(targetW / contentWidth, targetH / contentHeight);
+        }
+        if (!Number.isFinite(scaleFactor) || scaleFactor <= 0) return 1;
+        return Math.max(0.1, Math.min(4, scaleFactor));
+    }
+
+    applyPrintVisibility(enable) {
+        if (!this.table) return;
+        const range = this.getPrintRange();
+        const hideClass = 'print-hide';
+        const emptyClass = 'print-empty';
+        this.togglePrintRowHeaderColumn(enable);
+        this.togglePrintColumnVisibility(enable, range);
+        this.togglePrintRowVisibility(enable, range);
+        const cells = this.table.querySelectorAll('.cell');
+        cells.forEach(cell => {
+            const isHeader = cell.classList.contains('header');
+            if (isHeader) {
+                if (!enable) {
+                    cell.classList.remove(hideClass);
+                    cell.classList.remove(emptyClass);
+                    return;
+                }
+                cell.classList.add(hideClass);
+                cell.classList.remove(emptyClass);
+                return;
+            }
+
+            if (!enable) {
+                cell.classList.remove(hideClass);
+                cell.classList.remove(emptyClass);
+                return;
+            }
+            const id = cell.dataset.id;
+            if (!id) return;
+            const parsed = this.parseCellId(id);
+            if (parsed.colNum < range.startCol || parsed.colNum > range.endCol || parsed.row < range.startRow || parsed.row > range.endRow) {
+                cell.classList.add(hideClass);
+                cell.classList.remove(emptyClass);
+            } else {
+                if (this.isCellPrintable(id)) {
+                    cell.classList.remove(hideClass);
+                    cell.classList.remove(emptyClass);
+                } else {
+                    cell.classList.remove(hideClass);
+                    cell.classList.add(emptyClass);
+                }
+            }
+        });
+        this.applyPrintHeaderFooter(enable);
+    }
+
+    togglePrintRowHeaderColumn(enable) {
+        if (!this.colgroup || !this.colgroup.children || this.colgroup.children.length === 0) return;
+        const rowHeaderCol = this.colgroup.children[0];
+        if (!rowHeaderCol) return;
+
+        if (enable) {
+            if (rowHeaderCol.dataset.printPrevWidth == null) {
+                rowHeaderCol.dataset.printPrevWidth = rowHeaderCol.style.width || '';
+            }
+            rowHeaderCol.style.width = '0px';
+            rowHeaderCol.style.minWidth = '0px';
+            rowHeaderCol.style.maxWidth = '0px';
+            rowHeaderCol.style.display = 'none';
+            return;
+        }
+
+        rowHeaderCol.style.display = '';
+        rowHeaderCol.style.minWidth = '';
+        rowHeaderCol.style.maxWidth = '';
+        if (rowHeaderCol.dataset.printPrevWidth != null) {
+            rowHeaderCol.style.width = rowHeaderCol.dataset.printPrevWidth;
+            delete rowHeaderCol.dataset.printPrevWidth;
+        } else {
+            rowHeaderCol.style.width = '40px';
+        }
+    }
+
+    togglePrintColumnVisibility(enable, range) {
+        if (!this.colgroup || !this.colgroup.children) return;
+        const cols = this.colgroup.children;
+        for (let i = 1; i < cols.length; i++) {
+            const col = cols[i];
+            const colNum = i;
+            if (!col) continue;
+            if (!enable) {
+                this.restorePrintVisibilityStyles(col);
+                continue;
+            }
+            if (colNum < range.startCol || colNum > range.endCol) {
+                this.applyPrintHiddenStyles(col);
+            } else {
+                this.restorePrintVisibilityStyles(col);
+            }
+        }
+    }
+
+    togglePrintRowVisibility(enable, range) {
+        if (!this.tbody) return;
+        const rows = this.tbody.querySelectorAll('tr');
+        rows.forEach((tr) => {
+            const rowNum = Number(tr.dataset.rowIndex || '0');
+            if (!rowNum) return;
+            if (!enable) {
+                this.restorePrintVisibilityStyles(tr);
+                return;
+            }
+            if (rowNum < range.startRow || rowNum > range.endRow) {
+                this.applyPrintHiddenStyles(tr);
+            } else {
+                this.restorePrintVisibilityStyles(tr);
+            }
+        });
+    }
+
+    applyPrintHiddenStyles(el) {
+        if (!el) return;
+        if (el.dataset.printPrevDisplay == null) el.dataset.printPrevDisplay = el.style.display || '';
+        if (el.dataset.printPrevWidth == null) el.dataset.printPrevWidth = el.style.width || '';
+        if (el.dataset.printPrevMinWidth == null) el.dataset.printPrevMinWidth = el.style.minWidth || '';
+        if (el.dataset.printPrevMaxWidth == null) el.dataset.printPrevMaxWidth = el.style.maxWidth || '';
+        if (el.dataset.printPrevHeight == null) el.dataset.printPrevHeight = el.style.height || '';
+        if (el.dataset.printPrevMinHeight == null) el.dataset.printPrevMinHeight = el.style.minHeight || '';
+        if (el.dataset.printPrevMaxHeight == null) el.dataset.printPrevMaxHeight = el.style.maxHeight || '';
+        el.style.display = 'none';
+        el.style.width = '0px';
+        el.style.minWidth = '0px';
+        el.style.maxWidth = '0px';
+        el.style.height = '0px';
+        el.style.minHeight = '0px';
+        el.style.maxHeight = '0px';
+    }
+
+    restorePrintVisibilityStyles(el) {
+        if (!el) return;
+        if (el.dataset.printPrevDisplay != null) {
+            el.style.display = el.dataset.printPrevDisplay;
+            delete el.dataset.printPrevDisplay;
+        }
+        if (el.dataset.printPrevWidth != null) {
+            el.style.width = el.dataset.printPrevWidth;
+            delete el.dataset.printPrevWidth;
+        }
+        if (el.dataset.printPrevMinWidth != null) {
+            el.style.minWidth = el.dataset.printPrevMinWidth;
+            delete el.dataset.printPrevMinWidth;
+        }
+        if (el.dataset.printPrevMaxWidth != null) {
+            el.style.maxWidth = el.dataset.printPrevMaxWidth;
+            delete el.dataset.printPrevMaxWidth;
+        }
+        if (el.dataset.printPrevHeight != null) {
+            el.style.height = el.dataset.printPrevHeight;
+            delete el.dataset.printPrevHeight;
+        }
+        if (el.dataset.printPrevMinHeight != null) {
+            el.style.minHeight = el.dataset.printPrevMinHeight;
+            delete el.dataset.printPrevMinHeight;
+        }
+        if (el.dataset.printPrevMaxHeight != null) {
+            el.style.maxHeight = el.dataset.printPrevMaxHeight;
+            delete el.dataset.printPrevMaxHeight;
+        }
+    }
+
+    isCellPrintable(cellId) {
+        const anchorId = this.normalizeMergedCellId(cellId);
+        const hasData = !!(this.data?.[anchorId] && String(this.data[anchorId]).trim() !== '');
+        const hasFormula = !!(this.cellFormulas?.[anchorId] && String(this.cellFormulas[anchorId]).trim() !== '');
+        const hasStyle = !!this.cellStyles?.[anchorId];
+        const hasFormat = !!this.cellFormats?.[anchorId];
+        const hasBorder = !!this.cellBorders?.[anchorId];
+        return hasData || hasFormula || hasStyle || hasFormat || hasBorder;
+    }
+
+    applyPrintHeaderFooter(enable) {
+        const header = document.getElementById('print-header');
+        const footer = document.getElementById('print-footer');
+        if (!header || !footer) return;
+        const settings = this.getPrintSettings();
+        const show = enable && settings.headerFooter?.enabled;
+        const showSlots = settings.headerFooter?.show || {};
+        header.classList.toggle('print-hf-visible', !!show);
+        footer.classList.toggle('print-hf-visible', !!show);
+        header.style.display = show ? 'flex' : 'none';
+        footer.style.display = show ? 'flex' : 'none';
+        if (!show) return;
+        const pages = this.lastPrintPageCount || 1;
+        header.querySelector('.print-h-left').textContent = showSlots.headerLeft === false ? '' : this.expandPrintTokens(settings.headerFooter.header.left, 1, pages);
+        header.querySelector('.print-h-center').textContent = showSlots.headerCenter === false ? '' : this.expandPrintTokens(settings.headerFooter.header.center, 1, pages);
+        header.querySelector('.print-h-right').textContent = showSlots.headerRight === false ? '' : this.expandPrintTokens(settings.headerFooter.header.right, 1, pages);
+        footer.querySelector('.print-f-left').textContent = showSlots.footerLeft === false ? '' : this.expandPrintTokens(settings.headerFooter.footer.left, 1, pages);
+        footer.querySelector('.print-f-center').textContent = showSlots.footerCenter === false ? '' : this.expandPrintTokens(settings.headerFooter.footer.center, 1, pages);
+        footer.querySelector('.print-f-right').textContent = showSlots.footerRight === false ? '' : this.expandPrintTokens(settings.headerFooter.footer.right, 1, pages);
+    }
+
+    expandPrintTokens(text, page, pages) {
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const date = `${yyyy}-${mm}-${dd}`;
+        const title = (document.querySelector('.filename')?.innerText || 'Untitled').trim();
+        return String(text || '')
+            .replace(/\{date\}/gi, date)
+            .replace(/\{title\}/gi, title)
+            .replace(/\{page\}/gi, String(page))
+            .replace(/\{pages\}/gi, String(pages));
+    }
+
+    renderPrintPreview() {
+        const preview = document.querySelector('.print-preview-sheet');
+        if (!preview) return;
+        const range = this.getPrintRange();
+        const settings = this.getPrintSettings();
+        const paperSizes = { A4: { w: 210, h: 297 }, Letter: { w: 216, h: 279 } };
+        const basePaper = paperSizes[settings.paper] || paperSizes.A4;
+        const paper = settings.orientation === 'landscape'
+            ? { w: basePaper.h, h: basePaper.w }
+            : basePaper;
+        const pxPerMm = 96 / 25.4;
+        const contentWidth = this.getRangePixelSize(range).width;
+        const contentHeight = this.getRangePixelSize(range).height;
+        const printableW = Math.max(1, (paper.w - settings.margins.left - settings.margins.right) * pxPerMm);
+        const printableH = Math.max(1, (paper.h - settings.margins.top - settings.margins.bottom) * pxPerMm);
+
+        const scaleFactor = this.getPrintScaleFactor(range, settings);
+
+        const scaledW = contentWidth * scaleFactor;
+        const scaledH = contentHeight * scaleFactor;
+        const pagesX = Math.max(1, Math.ceil(scaledW / printableW));
+        const pagesY = Math.max(1, Math.ceil(scaledH / printableH));
+        this.lastPrintPageCount = pagesX * pagesY;
+
+        preview.innerHTML = '';
+        const canvas = document.createElement('div');
+        canvas.className = 'print-preview-canvas';
+        preview.appendChild(canvas);
+
+        // Mini content preview (scaled grid + text)
+        const grid = document.createElement('div');
+        grid.className = 'print-preview-grid';
+        canvas.appendChild(grid);
+        const canvasWidth = Math.max(1, grid.clientWidth || grid.getBoundingClientRect().width || 1);
+        const canvasHeight = Math.max(1, grid.clientHeight || grid.getBoundingClientRect().height || 1);
+        const totalPrintableW = printableW * pagesX;
+        const totalPrintableH = printableH * pagesY;
+        const scaleToPreview = Math.min(canvasWidth / Math.max(1, totalPrintableW), canvasHeight / Math.max(1, totalPrintableH));
+        const finalScale = scaleFactor * scaleToPreview;
+        const previewW = totalPrintableW * scaleToPreview;
+        const previewH = totalPrintableH * scaleToPreview;
+        grid.style.width = `${previewW}px`;
+        grid.style.height = `${previewH}px`;
+        grid.style.left = `${(canvasWidth - previewW) / 2}px`;
+        grid.style.top = `${(canvasHeight - previewH) / 2}px`;
+
+        let x = 0;
+        let y = 0;
+        let cellCount = 0;
+        const maxCells = 600;
+        for (let r = range.startRow; r <= range.endRow; r++) {
+            const h = (this.rowHeights[r] || 25) * finalScale;
+            if (y + h > canvasHeight) break;
+            x = 0;
+            for (let c = range.startCol; c <= range.endCol; c++) {
+                const w = (this.colWidths[c - 1] || 100) * finalScale;
+                if (x + w > canvasWidth) break;
+                const cell = document.createElement('div');
+                cell.className = 'preview-cell';
+                cell.style.left = `${x}px`;
+                cell.style.top = `${y}px`;
+                cell.style.width = `${Math.max(1, w)}px`;
+                cell.style.height = `${Math.max(1, h)}px`;
+                const id = `${this.numberToCol(c)}${r}`;
+                const raw = this.getRawValue(id);
+                if (raw) cell.textContent = raw;
+                const style = this.cellStyles[id];
+                if (style?.backgroundColor) cell.style.backgroundColor = style.backgroundColor;
+                if (style?.color) cell.style.color = style.color;
+                grid.appendChild(cell);
+                cellCount++;
+                if (cellCount >= maxCells) break;
+                x += w;
+            }
+            if (cellCount >= maxCells) break;
+            y += h;
+        }
+
+        // Page break lines
+        for (let i = 1; i < pagesX; i++) {
+            const line = document.createElement('div');
+            line.className = 'print-preview-break-v';
+            line.style.left = `${(i / pagesX) * 100}%`;
+            canvas.appendChild(line);
+        }
+        for (let j = 1; j < pagesY; j++) {
+            const line = document.createElement('div');
+            line.className = 'print-preview-break-h';
+            line.style.top = `${(j / pagesY) * 100}%`;
+            canvas.appendChild(line);
+        }
+
+        // Page labels
+        const pages = document.createElement('div');
+        pages.className = 'print-preview-pages';
+        pages.style.gridTemplateColumns = `repeat(${pagesX}, 1fr)`;
+        pages.style.gridTemplateRows = `repeat(${pagesY}, 1fr)`;
+        preview.appendChild(pages);
+        const totalPages = pagesX * pagesY;
+        for (let i = 0; i < totalPages; i++) {
+            const tile = document.createElement('div');
+            tile.className = 'print-preview-page-tile';
+            const label = document.createElement('span');
+            label.textContent = `Page ${i + 1}`;
+            if (settings.headerFooter?.enabled) {
+                const slot = settings.headerFooter.show || {};
+                const header = document.createElement('div');
+                header.className = 'print-preview-page-header';
+                const hL = document.createElement('span');
+                const hC = document.createElement('span');
+                const hR = document.createElement('span');
+                hL.className = 'left';
+                hC.className = 'center';
+                hR.className = 'right';
+                hL.textContent = slot.headerLeft === false ? '' : this.expandPrintTokens(settings.headerFooter.header.left, i + 1, totalPages);
+                hC.textContent = slot.headerCenter === false ? '' : this.expandPrintTokens(settings.headerFooter.header.center, i + 1, totalPages);
+                hR.textContent = slot.headerRight === false ? '' : this.expandPrintTokens(settings.headerFooter.header.right, i + 1, totalPages);
+                header.appendChild(hL);
+                header.appendChild(hC);
+                header.appendChild(hR);
+
+                const footer = document.createElement('div');
+                footer.className = 'print-preview-page-footer';
+                const fL = document.createElement('span');
+                const fC = document.createElement('span');
+                const fR = document.createElement('span');
+                fL.className = 'left';
+                fC.className = 'center';
+                fR.className = 'right';
+                fL.textContent = slot.footerLeft === false ? '' : this.expandPrintTokens(settings.headerFooter.footer.left, i + 1, totalPages);
+                fC.textContent = slot.footerCenter === false ? '' : this.expandPrintTokens(settings.headerFooter.footer.center, i + 1, totalPages);
+                fR.textContent = slot.footerRight === false ? '' : this.expandPrintTokens(settings.headerFooter.footer.right, i + 1, totalPages);
+                footer.appendChild(fL);
+                footer.appendChild(fC);
+                footer.appendChild(fR);
+                tile.appendChild(header);
+                tile.appendChild(footer);
+            }
+            tile.appendChild(label);
+            pages.appendChild(tile);
+        }
+    }
+
+    getPrintPagination(range, settings = this.getPrintSettings()) {
+        const paperSizes = { A4: { w: 210, h: 297 }, Letter: { w: 216, h: 279 } };
+        const basePaper = paperSizes[settings.paper] || paperSizes.A4;
+        const paper = settings.orientation === 'landscape'
+            ? { w: basePaper.h, h: basePaper.w }
+            : basePaper;
+        const pxPerMm = 96 / 25.4;
+        const content = this.getRangePixelSize(range);
+        const contentWidth = Math.max(1, content.width);
+        const contentHeight = Math.max(1, content.height);
+        const printableW = Math.max(1, (paper.w - settings.margins.left - settings.margins.right) * pxPerMm);
+        const printableH = Math.max(1, (paper.h - settings.margins.top - settings.margins.bottom) * pxPerMm);
+        const scaleFactor = this.getPrintScaleFactor(range, settings);
+        const scaledW = contentWidth * scaleFactor;
+        const scaledH = contentHeight * scaleFactor;
+        const pagesX = Math.max(1, Math.ceil(scaledW / printableW));
+        const pagesY = Math.max(1, Math.ceil(scaledH / printableH));
+        const pageSpanWidth = (printableW * pagesX) / scaleFactor;
+        const pageSpanHeight = (printableH * pagesY) / scaleFactor;
+        const breaksX = [];
+        const breaksY = [];
+        for (let i = 1; i < pagesX; i++) {
+            breaksX.push((i * printableW) / scaleFactor);
+        }
+        for (let j = 1; j < pagesY; j++) {
+            breaksY.push((j * printableH) / scaleFactor);
+        }
+        return {
+            pagesX,
+            pagesY,
+            breaksX,
+            breaksY,
+            contentWidth,
+            contentHeight,
+            pageSpanWidth,
+            pageSpanHeight
+        };
+    }
+
+    syncPageBreakPreviewButton() {
+        const btn = document.getElementById('btn-page-break-preview');
+        if (!btn) return;
+        btn.classList.toggle('active', this.showPageBreakPreview);
+    }
+
+    togglePageBreakPreview(forceValue = null) {
+        this.showPageBreakPreview = forceValue == null ? !this.showPageBreakPreview : !!forceValue;
+        this.syncPageBreakPreviewButton();
+        this.updatePageBreakPreview();
+    }
+
+    updatePageBreakPreview() {
+        if (!this.pageBreakOverlay) return;
+        this.syncPageBreakPreviewButton();
+        if (!this.showPageBreakPreview || !this.table) {
+            this.pageBreakOverlay.style.display = 'none';
+            this.pageBreakOverlay.innerHTML = '';
+            return;
+        }
+
+        const range = this.getPrintRange();
+        if (!range) {
+            this.pageBreakOverlay.style.display = 'none';
+            this.pageBreakOverlay.innerHTML = '';
+            return;
+        }
+
+        const tlRect = this.getCellRectForCoord(range.startCol, range.startRow);
+        const brRect = this.getCellRectForCoord(range.endCol, range.endRow);
+        const containerRect = this.container.getBoundingClientRect();
+        if (!tlRect || !brRect || !containerRect) {
+            this.pageBreakOverlay.style.display = 'none';
+            this.pageBreakOverlay.innerHTML = '';
+            return;
+        }
+
+        const left = tlRect.left - containerRect.left + this.container.scrollLeft;
+        const top = tlRect.top - containerRect.top + this.container.scrollTop;
+        const contentWidthPx = Math.max(1, brRect.right - tlRect.left);
+        const contentHeightPx = Math.max(1, brRect.bottom - tlRect.top);
+        const pagination = this.getPrintPagination(range, this.getPrintSettings());
+        const width = Math.max(contentWidthPx, Math.ceil(pagination.pageSpanWidth || 0));
+        const height = Math.max(contentHeightPx, Math.ceil(pagination.pageSpanHeight || 0));
+
+        this.pageBreakOverlay.style.display = 'block';
+        this.pageBreakOverlay.style.left = `${left}px`;
+        this.pageBreakOverlay.style.top = `${top}px`;
+        this.pageBreakOverlay.style.width = `${width}px`;
+        this.pageBreakOverlay.style.height = `${height}px`;
+        this.pageBreakOverlay.innerHTML = '';
+
+        pagination.breaksX.forEach((x) => {
+            const line = document.createElement('div');
+            line.className = 'page-break-line-v';
+            line.style.left = `${Math.max(0, Math.min(width, x))}px`;
+            this.pageBreakOverlay.appendChild(line);
+        });
+        pagination.breaksY.forEach((y) => {
+            const line = document.createElement('div');
+            line.className = 'page-break-line-h';
+            line.style.top = `${Math.max(0, Math.min(height, y))}px`;
+            this.pageBreakOverlay.appendChild(line);
+        });
+    }
+
+    getRangePixelSize(range) {
+        let width = 0;
+        let height = 0;
+        for (let c = range.startCol; c <= range.endCol; c++) {
+            width += this.colWidths[c - 1] || 100;
+        }
+        for (let r = range.startRow; r <= range.endRow; r++) {
+            height += this.rowHeights[r] || 25;
+        }
+        return { width, height };
+    }
+
+    getUsedRangeForSheet(sheet = this.activeSheet) {
+        let maxRow = 0;
+        let maxCol = 0;
+        const scan = (key) => {
+            const parsed = this.parseCellId(key);
+            if (!parsed) return;
+            maxRow = Math.max(maxRow, parsed.row);
+            maxCol = Math.max(maxCol, parsed.colNum);
+        };
+        Object.keys(sheet.data || {}).forEach(scan);
+        Object.keys(sheet.cellFormulas || {}).forEach(scan);
+        Object.keys(sheet.cellStyles || {}).forEach(scan);
+        Object.keys(sheet.cellFormats || {}).forEach(scan);
+        Object.keys(sheet.cellBorders || {}).forEach(scan);
+        (sheet.mergedRanges || []).forEach((range) => {
+            const normalized = this.normalizeMergedRangeEntry(range);
+            if (!normalized) return;
+            maxRow = Math.max(maxRow, normalized.endRow);
+            maxCol = Math.max(maxCol, normalized.endCol);
+        });
+        if (maxRow === 0) maxRow = 1;
+        if (maxCol === 0) maxCol = 1;
+        return { startCol: 1, startRow: 1, endCol: maxCol, endRow: maxRow };
+    }
+
+    formatRangeRef(range) {
+        if (!range) return '';
+        const start = `${this.numberToCol(range.startCol)}${range.startRow}`;
+        const end = `${this.numberToCol(range.endCol)}${range.endRow}`;
+        return start === end ? start : `${start}:${end}`;
+    }
+
+    togglePrintAreaFromRibbon() {
+        const settings = this.getPrintSettings();
+        if (settings.printArea) {
+            this.clearPrintArea();
+            return;
+        }
+        this.setPrintAreaFromSelection();
+    }
+
+    updatePrintAreaToggleUI() {
+        const btn = document.getElementById('btn-print-area-toggle');
+        if (!btn) return;
+        const settings = this.getPrintSettings();
+        const hasArea = !!settings.printArea;
+        btn.classList.toggle('active', hasArea);
+        if (hasArea) {
+            btn.title = `Print Area Set: ${this.formatRangeRef(settings.printArea)} (Click to Clear)`;
+        } else {
+            btn.title = 'Set Print Area (from selection)';
+        }
+    }
+
+    setPrintAreaFromSelection() {
+        const range = this.getEffectiveRange();
+        if (!range) return;
+        const normalized = this.expandRangeToIncludeMerges(range);
+        const settings = this.getPrintSettings();
+        settings.printArea = {
+            startCol: normalized.startCol,
+            startRow: normalized.startRow,
+            endCol: normalized.endCol,
+            endRow: normalized.endRow
+        };
+        this.markDirty();
+        this.updateStatusBadge(`Print area set: ${this.formatRangeRef(settings.printArea)}`);
+        this.updatePrintAreaToggleUI();
+        this.updatePrintControlsState();
+        const modal = document.getElementById('print-settings-modal');
+        if (modal && modal.style.display !== 'none') this.renderPrintPreview();
+        this.updatePageBreakPreview();
+    }
+
+    clearPrintArea() {
+        const settings = this.getPrintSettings();
+        settings.printArea = null;
+        this.markDirty();
+        this.updateStatusBadge('Print area cleared');
+        this.updatePrintAreaToggleUI();
+        this.updatePrintControlsState();
+        const modal = document.getElementById('print-settings-modal');
+        if (modal && modal.style.display !== 'none') this.renderPrintPreview();
+        this.updatePageBreakPreview();
+    }
+
+    updateStatusBadge(message) {
+        const badge = document.querySelector('.status-badge');
+        if (!badge) return;
+        const prev = badge.innerText;
+        const prevClass = badge.className;
+        badge.innerText = message;
+        badge.className = 'status-badge modified';
+        setTimeout(() => {
+            if (!badge.isConnected) return;
+            badge.innerText = prev;
+            badge.className = prevClass;
+        }, 1800);
+    }
+
+    getPrintRange() {
+        const settings = this.getPrintSettings();
+        if (settings.printArea) {
+            return this.expandRangeToIncludeMerges(settings.printArea);
+        }
+        if (settings.range === 'selection') {
+            const range = this.selectionRange || settings.selectionRange;
+            if (range) return this.expandRangeToIncludeMerges(range);
+        }
+        if (settings.range === 'used') {
+            return this.getUsedRangeForSheet();
+        }
+        return { startCol: 1, startRow: 1, endCol: this.cols, endRow: this.rows };
+    }
+
     isBlankValue(value) {
         if (value === null || value === undefined) return true;
         return String(value).trim() === '';
@@ -2706,14 +3847,16 @@ class VibrantSheets {
         return '=' + out;
     }
 
-    // ─── Clipboard ─────────────────────────────────────────
+    // ??? Clipboard ?????????????????????????????????????????
     copySelection() {
         const range = this.getEffectiveRange();
         if (!range) return;
 
-        const { startCol, startRow, endCol, endRow } = range;
+        const expandedRange = this.expandRangeToIncludeMerges(range);
+        const { startCol, startRow, endCol, endRow } = expandedRange;
         const rows = [];
         this.clipboardData = [];
+        this.clipboardMerges = [];
 
         for (let r = startRow; r <= endRow; r++) {
             const rowVals = [];
@@ -2731,12 +3874,30 @@ class VibrantSheets {
         this.isCut = false;
         this.cutRange = null;
 
+        // Capture merged ranges within the copied area (relative offsets)
+        const merges = this.getNormalizedMergedRanges();
+        merges.forEach((merge) => {
+            if (
+                merge.startCol >= startCol &&
+                merge.endCol <= endCol &&
+                merge.startRow >= startRow &&
+                merge.endRow <= endRow
+            ) {
+                this.clipboardMerges.push({
+                    startColOffset: merge.startCol - startCol,
+                    endColOffset: merge.endCol - startCol,
+                    startRowOffset: merge.startRow - startRow,
+                    endRowOffset: merge.endRow - startRow
+                });
+            }
+        });
+
         // Copy to system clipboard as TSV
         const text = rows.join('\n');
         navigator.clipboard.writeText(text).catch(() => {});
 
         // Flash visual feedback
-        this.flashCopyBorder(range);
+        this.flashCopyBorder(expandedRange);
     }
 
     cutSelection() {
@@ -2745,10 +3906,10 @@ class VibrantSheets {
 
         this.copySelection();
         this.isCut = true;
-        this.cutRange = { ...range };
+        this.cutRange = { ...this.expandRangeToIncludeMerges(range) };
 
         // Add dashed border for cut visual
-        this.flashCutBorder(range);
+        this.flashCutBorder(this.cutRange);
     }
 
     async pasteAtSelection() {
@@ -2758,28 +3919,19 @@ class VibrantSheets {
         let rowsData = [];
         let isInternalPaste = false;
 
-        try {
-            // Priority: Attempt to read from system clipboard first
-            const text = await navigator.clipboard.readText();
-            
-            // Convert internal clipboard to TSV string for comparison if needed
-            const internalTsv = this.clipboardData ? this.clipboardData.map(r => r.join('\t')).join('\n') : null;
-
-            if (text && text.trim() !== '' && text !== internalTsv) {
-                rowsData = this.parseTSV(text);
-                isInternalPaste = false;
-            } else if (this.clipboardData && this.clipboardData.length > 0) {
-                rowsData = this.clipboardData;
-                isInternalPaste = true;
-            } else if (text && text.trim() !== '') {
-                rowsData = this.parseTSV(text);
-                isInternalPaste = false;
-            }
-        } catch (err) {
-            console.warn('System clipboard access denied, using internal data:', err);
-            if (this.clipboardData) {
-                rowsData = this.clipboardData;
-                isInternalPaste = true;
+        // Prefer internal clipboard to avoid triggering clipboard-read permission prompts.
+        if (this.clipboardData && this.clipboardData.length > 0) {
+            rowsData = this.clipboardData;
+            isInternalPaste = true;
+        } else {
+            try {
+                const text = await navigator.clipboard.readText();
+                if (text && text.trim() !== '') {
+                    rowsData = this.parseTSV(text);
+                    isInternalPaste = false;
+                }
+            } catch (err) {
+                console.warn('System clipboard access denied:', err);
             }
         }
 
@@ -2797,8 +3949,13 @@ class VibrantSheets {
 
         const isSingleCellPaste = numRows === 1 && numCols === 1;
         if (!isSingleCellPaste && this.rangeIntersectsMerges(pasteRange)) {
+            const ok = await this.showConfirmAsync('병합된 셀이 포함된 영역입니다. 붙여넣기를 위해 병합을 해제할까요?');
+            if (!ok) return;
             this.unmergeRange(pasteRange);
         }
+
+        let pasteEndCol = anchor.colNum + numCols - 1;
+        let pasteEndRow = anchor.row + numRows - 1;
 
         for (let r = 0; r < numRows; r++) {
             for (let c = 0; c < numCols; c++) {
@@ -2821,6 +3978,25 @@ class VibrantSheets {
                     }
                 }
             }
+        }
+
+        // Reapply merged ranges when pasting internal clipboard data
+        if (isInternalPaste && Array.isArray(this.clipboardMerges) && this.clipboardMerges.length > 0) {
+            this.clipboardMerges.forEach((merge) => {
+                const startCol = anchor.colNum + merge.startColOffset;
+                const endCol = anchor.colNum + merge.endColOffset;
+                const startRow = anchor.row + merge.startRowOffset;
+                const endRow = anchor.row + merge.endRowOffset;
+                pasteEndCol = Math.max(pasteEndCol, endCol);
+                pasteEndRow = Math.max(pasteEndRow, endRow);
+                if (startCol < 1 || startRow < 1 || endCol > this.cols) return;
+                if (endRow > this.rows) {
+                    const rowsToAdd = Math.max(30, endRow - this.rows);
+                    this.createRowElements(this.rows + 1, this.rows + rowsToAdd);
+                    this.rows += rowsToAdd;
+                }
+                this.mergeRangeSilently({ startCol, startRow, endCol, endRow });
+            });
         }
 
         // If it was an internal cut, clear source cells
@@ -2846,7 +4022,7 @@ class VibrantSheets {
         this.updateItemCount();
 
         // Select the pasted range
-        this.setSelectionRange(anchor.colNum, anchor.row, anchor.colNum + numCols - 1, anchor.row + numRows - 1);
+        this.setSelectionRange(anchor.colNum, anchor.row, pasteEndCol, pasteEndRow);
         this.updateRangeVisual();
         this.updateFillHandlePosition();
     }
@@ -2903,6 +4079,14 @@ class VibrantSheets {
         return rows;
     }
 
+    normalizeClipboardText(text) {
+        if (text === null || text === undefined) return '';
+        return String(text)
+            .replace(/\r\n/g, '\n')
+            .replace(/\r/g, '\n')
+            .replace(/\n+$/g, '');
+    }
+
     deleteSelection() {
         const range = this.getEffectiveRange();
         if (!range) return;
@@ -2938,7 +4122,7 @@ class VibrantSheets {
         this.rangeOverlay.classList.add('cut-dashed');
     }
 
-    // ─── Keyboard Navigation ───────────────────────────────
+    // ??? Keyboard Navigation ???????????????????????????????
     handleKeyDown(e) {
         const activeCell = document.activeElement.closest('.cell');
         if (!activeCell || activeCell.classList.contains('header')) return;
@@ -2990,14 +4174,17 @@ class VibrantSheets {
                 this.isEditing = true; // Flag we are now in edit state
                 return;
             }
-            
-            // Transition to editing mode without manual clearing (the selection from handleCellFocus will handle overwriting)
+
+            // For merged cells or range selections, ensure overwrite by explicitly preparing enter mode.
+            if (this.selectionRange || activeCell.classList.contains('merge-anchor')) {
+                this.prepareEnterMode(activeCell, true);
+                return;
+            }
+
+            // Transition to editing mode without manual clearing (selection from handleCellFocus will overwrite)
             this.isEditing = true;
             this.originalValue = this.getRawValue(activeCell.dataset.id);
             activeCell.classList.add('editing');
-            
-            // Note: We don't call prepareEnterMode here because that clears the text manually,
-            // which breaks IME hook. The "Select All" in handleCellFocus handles the clean overwrite.
             return;
         }
 
@@ -3101,7 +4288,7 @@ class VibrantSheets {
         }
     }
 
-    // ─── Mode Handlers ─────────────────────────────────────
+    // ??? Mode Handlers ?????????????????????????????????????
     enterEditMode(cell) {
         if (this.isEditing) return;
         const cellId = cell.dataset.id;
@@ -3249,7 +4436,7 @@ class VibrantSheets {
         }
     }
 
-    // ─── File Import / Export ───────────────────────────────
+    // ??? File Import / Export ???????????????????????????????
     // File Import / Export methods are loaded from engines/vs_io.js
     async openFileDialog() {
         return window.VSIO.openFileDialog(this);
@@ -3266,7 +4453,7 @@ class VibrantSheets {
         // Check if there's existing data
         const hasData = Object.keys(this.data).some(k => this.data[k] && this.data[k].trim() !== '');
         if (hasData) {
-            if (!confirm('작업 중인 내용이 덮어씌워질 수 있습니다. 계속할까요?\n(Unsaved changes will be lost. Continue?)')) {
+            if (!confirm('작업 중인 내용이 사라집니다. 계속할까요?\n(Unsaved changes will be lost. Continue?)')) {
                 return;
             }
         }
@@ -3319,7 +4506,7 @@ class VibrantSheets {
     async importXLSXExcelJS(buffer) {
         return window.VSIO.importXLSXExcelJS(this, buffer);
         if (typeof ExcelJS === 'undefined') {
-            alert('Excel 라이브러리를 불러오지 못했습니다. 네트워크 연결을 확인해 주세요.');
+            alert('Excel 라이브러리를 불러오지 못했습니다. 스크립트 연결을 확인해 주세요.');
             return;
         }
 
@@ -3480,6 +4667,7 @@ class VibrantSheets {
             this.rangeOverlay = this.createOverlay('range-overlay');
             this.fillHandle = this.createOverlay('fill-handle');
             this.resizeGuide = this.createOverlay('resize-guide');
+            this.pageBreakOverlay = this.createOverlay('page-break-overlay');
             
             this.renderGrid();
             
@@ -3491,6 +4679,9 @@ class VibrantSheets {
             this.updateRangeVisual();
             this.updateFillHandlePosition();
             this.refreshFindIfActive();
+            this.updatePrintAreaToggleUI();
+            this.updatePrintControlsState();
+            this.updatePageBreakPreview();
         }
     }
 
@@ -3641,7 +4832,7 @@ class VibrantSheets {
     async generateXLSXBufferExcelJS() {
         return window.VSIO.generateXLSXBufferExcelJS(this);
         if (typeof ExcelJS === 'undefined') {
-            alert('Excel 라이브러리를 불러오지 못했습니다. 네트워크 연결을 확인해 주세요.');
+            alert('Excel 라이브러리를 불러오지 못했습니다. 스크립트 연결을 확인해 주세요.');
             return null;
         }
 
@@ -3727,7 +4918,8 @@ class VibrantSheets {
                             cellObj = { v: this.toExcelDateSerial(dateValue), t: 'n', z: 'yyyy-mm-dd' };
                         } else if (format.type === 'currency' && numericValue !== null) {
                             const d = format.decimals ?? 2;
-                            cellObj = { v: numericValue, t: 'n', z: `"₩"#,##0${d > 0 ? '.' + '0'.repeat(d) : ''}` };
+                            const currencySymbol = format.currency === 'USD' ? '$' : '₩';
+                            cellObj = { v: numericValue, t: 'n', z: `"${currencySymbol}"#,##0${d > 0 ? '.' + '0'.repeat(d) : ''}` };
                         } else if (format.type === 'percentage' && numericValue !== null) {
                             const d = format.decimals ?? 2;
                             cellObj = { v: numericValue, t: 'n', z: `0${d > 0 ? '.' + '0'.repeat(d) : ''}%` };
@@ -3800,11 +4992,59 @@ class VibrantSheets {
         return null;
     }
 
+    getExcelThemeBaseHex(themeIndex) {
+        const theme = Number(themeIndex);
+        const palette = {
+            0: '#FFFFFF', // lt1
+            1: '#000000', // dk1
+            2: '#E7E6E6', // lt2
+            3: '#44546A', // dk2
+            4: '#4472C4', // accent1
+            5: '#ED7D31', // accent2
+            6: '#A5A5A5', // accent3
+            7: '#FFC000', // accent4
+            8: '#5B9BD5', // accent5
+            9: '#70AD47', // accent6
+            10: '#0000FF', // hyperlink
+            11: '#800080' // followed hyperlink
+        };
+        return palette[theme] || null;
+    }
+
+    applyExcelTint(hex, tint) {
+        if (!hex || tint === null || tint === undefined || !Number.isFinite(Number(tint))) return hex;
+        const t = Number(tint);
+        const clean = hex.replace('#', '');
+        if (clean.length !== 6) return hex;
+        const toChannel = (v) => {
+            if (t < 0) return Math.round(v * (1 + t));
+            return Math.round(v * (1 - t) + 255 * t);
+        };
+        const clamp = (n) => Math.max(0, Math.min(255, n));
+        const r = clamp(toChannel(parseInt(clean.slice(0, 2), 16)));
+        const g = clamp(toChannel(parseInt(clean.slice(2, 4), 16)));
+        const b = clamp(toChannel(parseInt(clean.slice(4, 6), 16)));
+        const toHex = (n) => n.toString(16).padStart(2, '0').toUpperCase();
+        return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    }
+
+    excelColorToHex(color) {
+        if (!color) return null;
+        if (color.argb) return this.argbToHex(color.argb);
+        if (color.rgb) return this.argbToHex(color.rgb);
+        if (color.theme !== undefined && color.theme !== null) {
+            const base = this.getExcelThemeBaseHex(color.theme);
+            return this.applyExcelTint(base, color.tint);
+        }
+        return null;
+    }
+
     mapInternalStyleToExceljs(cell, style) {
         const font = {};
         if (style.fontWeight === 'bold') font.bold = true;
         if (style.fontStyle === 'italic') font.italic = true;
-        if (style.textDecoration === 'underline') font.underline = true;
+        if (style.textDecoration && String(style.textDecoration).includes('underline')) font.underline = true;
+        if (style.textDecoration && String(style.textDecoration).includes('line-through')) font.strike = true;
         if (style.fontSize) font.size = parseInt(style.fontSize, 10);
         if (style.fontFamily) font.name = style.fontFamily;
         if (style.color) {
@@ -3835,16 +5075,30 @@ class VibrantSheets {
         if (font.bold) style.fontWeight = 'bold';
         if (font.italic) style.fontStyle = 'italic';
         if (font.underline) style.textDecoration = 'underline';
+        if (font.strike) {
+            style.textDecoration = style.textDecoration
+                ? `${style.textDecoration} line-through`
+                : 'line-through';
+        }
         if (font.size) style.fontSize = font.size + 'pt';
         if (font.name) style.fontFamily = font.name;
-        if (font.color && font.color.argb) style.color = this.argbToHex(font.color.argb);
+        if (font.color) {
+            const fontHex = this.excelColorToHex(font.color);
+            if (fontHex) style.color = fontHex;
+        }
 
         const alignment = cell.alignment || {};
         if (alignment.horizontal) style.textAlign = alignment.horizontal;
 
         const fill = cell.fill || {};
-        if (fill.fgColor && fill.fgColor.argb) {
-            style.backgroundColor = this.argbToHex(fill.fgColor.argb);
+        if (fill.pattern === 'solid' || fill.patternType === 'solid' || fill.type === 'pattern') {
+            const fgHex = this.excelColorToHex(fill.fgColor);
+            const bgHex = this.excelColorToHex(fill.bgColor);
+            if (fgHex) {
+                style.backgroundColor = fgHex;
+            } else if (bgHex) {
+                style.backgroundColor = bgHex;
+            }
         }
 
         if (Object.keys(style).length > 0) {
@@ -3852,13 +5106,45 @@ class VibrantSheets {
         }
 
         if (cell.border) {
+            const mapStyle = (excelStyle) => {
+                if (!excelStyle) return { style: 'solid', width: 1 };
+                switch (excelStyle) {
+                    case 'thin':
+                        return { style: 'solid', width: 1 };
+                    case 'medium':
+                        return { style: 'solid', width: 2 };
+                    case 'thick':
+                        return { style: 'solid', width: 3 };
+                    case 'dashed':
+                        return { style: 'dashed', width: 1 };
+                    case 'dotted':
+                        return { style: 'dotted', width: 1 };
+                    case 'mediumDashed':
+                        return { style: 'dashed', width: 2 };
+                    case 'dashDot':
+                    case 'dashDotDot':
+                    case 'slantDashDot':
+                        return { style: 'dashed', width: 1 };
+                    case 'mediumDashDot':
+                    case 'mediumDashDotDot':
+                        return { style: 'dashed', width: 2 };
+                    case 'double':
+                        return { style: 'solid', width: 2 };
+                    case 'hair':
+                        return { style: 'solid', width: 1 };
+                    default:
+                        return { style: 'solid', width: 1 };
+                }
+            };
+
             const toInternal = (side) => {
                 const b = cell.border?.[side];
                 if (!b || !b.style) return null;
+                const mapped = mapStyle(b.style);
                 return {
-                    style: b.style,
+                    style: mapped.style,
                     color: this.argbToHex(b.color?.argb),
-                    width: 1
+                    width: mapped.width
                 };
             };
             const border = {
@@ -3875,10 +5161,24 @@ class VibrantSheets {
         }
     }
 
+    detectCurrencyFromFormatCode(formatCode) {
+        const raw = String(formatCode || '');
+        if (!raw) return null;
+        if (raw.includes('₩')) return 'KRW';
+        if (raw.includes('$')) return 'USD';
+        const bracketTokens = raw.match(/\[\$[^\]]+\]/g) || [];
+        for (const token of bracketTokens) {
+            if (token.includes('₩')) return 'KRW';
+            if (token.includes('$')) return 'USD';
+        }
+        return null;
+    }
+
     getNumFmtFromFormat(format) {
         if (format.type === 'currency') {
             const d = format.decimals ?? 2;
-            return `"₩"#,##0${d > 0 ? '.' + '0'.repeat(d) : ''}`;
+            const currencySymbol = format.currency === 'USD' ? '$' : '₩';
+            return `"${currencySymbol}"#,##0${d > 0 ? '.' + '0'.repeat(d) : ''}`;
         }
         if (format.type === 'percentage') {
             const d = format.decimals ?? 2;
@@ -3898,9 +5198,11 @@ class VibrantSheets {
     }
 
     getExceljsFormatFromNumFmt(numFmt, cellType) {
-        const formatCode = String(numFmt || '').toLowerCase();
+        const rawCode = String(numFmt || '');
+        const formatCode = rawCode.toLowerCase();
         let type = 'general';
         let decimals = null;
+        let currency = null;
 
         if (formatCode === '@' || formatCode === 'text') {
             type = 'text';
@@ -3914,15 +5216,16 @@ class VibrantSheets {
         } else if (formatCode.includes('[$') || formatCode.includes('₩') || formatCode.includes('$')) {
             type = 'currency';
             decimals = this.extractDecimalPlacesFromFormat(formatCode);
+            currency = this.detectCurrencyFromFormatCode(rawCode) || 'KRW';
         } else if (formatCode.includes('#') || formatCode.includes('0') || cellType === 2 /* Number */) {
             type = 'number';
             decimals = this.extractDecimalPlacesFromFormat(formatCode);
         }
 
-        return this.normalizeFormat({ type, decimals });
+        return this.normalizeFormat({ type, decimals, currency });
     }
 
-    // ─── Style Mapping Helpers ─────────────────────────────
+    // Style Mapping Helpers
     mapInternalStyleToXlsx(style) {
         const s = { font: {}, alignment: {}, fill: {} };
         if (style.fontWeight === 'bold') s.font.bold = true;
@@ -3990,6 +5293,7 @@ class VibrantSheets {
         const formatCode = String(wsCell.z || '').toLowerCase();
         let type = 'general';
         let decimals = null;
+        let currency = null;
 
         if (formatCode.includes('%')) {
             type = 'percentage';
@@ -4000,17 +5304,19 @@ class VibrantSheets {
         } else if (formatCode.includes('[$') || formatCode.includes('₩') || formatCode.includes('$')) {
             type = 'currency';
             decimals = this.extractDecimalPlacesFromFormat(formatCode);
+            currency = this.detectCurrencyFromFormatCode(wsCell.z || '') || 'KRW';
         } else if (wsCell.t === 'n') {
             decimals = this.extractDecimalPlacesFromFormat(formatCode);
         }
 
-        return this.normalizeFormat({ type, decimals });
+        return this.normalizeFormat({ type, decimals, currency });
     }
 
     mapXlsxFormatToInternal(cellId, wsCell) {
         const formatCode = String(wsCell.z || '').toLowerCase();
         let type = 'general';
         let decimals = null;
+        let currency = null;
 
         if (formatCode.includes('%')) {
             type = 'percentage';
@@ -4021,12 +5327,13 @@ class VibrantSheets {
         } else if (formatCode.includes('[$') || formatCode.includes('₩') || formatCode.includes('$')) {
             type = 'currency';
             decimals = this.extractDecimalPlacesFromFormat(formatCode);
+            currency = this.detectCurrencyFromFormatCode(wsCell.z || '') || 'KRW';
         } else if (wsCell.t === 'n') {
             decimals = this.extractDecimalPlacesFromFormat(formatCode);
         }
 
         if (type !== 'general' || decimals !== null) {
-            this.setCellFormat(cellId, { type, decimals });
+            this.setCellFormat(cellId, { type, decimals, currency });
         }
     }
 
@@ -4058,7 +5365,7 @@ class VibrantSheets {
         }
     }
 
-    // ─── Phase 6: Table Operations ────────────────────────
+    // Phase 6: Table Operations
     getEffectiveRange() {
         if (this.selectionRange) {
             return this.selectionRange;
@@ -4173,8 +5480,8 @@ class VibrantSheets {
             }
 
             msg.textContent = message;
-            if (btnCancel) btnCancel.textContent = '취소';
-            if (btnOk) btnOk.textContent = '확인';
+            if (btnCancel) btnCancel.textContent = '痍⑥냼';
+            if (btnOk) btnOk.textContent = '?뺤씤';
             modal.style.display = 'flex';
             const close = (result) => {
                 modal.style.display = 'none';
@@ -4299,3 +5606,6 @@ class VibrantSheets {
         this.shiftMergedRanges(type, threshold, delta);
     }
 }
+
+
+
