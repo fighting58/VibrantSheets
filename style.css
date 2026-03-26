@@ -6,13 +6,20 @@
     --text-secondary: #94a3b8;
     --accent-color: #38bdf8;
     --accent-hover: #0ea5e9;
-    --selection-color: rgba(56, 189, 248, 0.1);
+    --selection-color: rgba(56, 189, 248, 0.15); /* More visible on white */
     --header-bg: rgba(30, 41, 59, 0.8);
-    --grid-line: #1e293b;
-    --ribbon-height: 100px;
-    --formula-height: 40px;
-    --title-height: 50px;
-    --status-height: 30px;
+    
+    /* Grid Colors (Light background for better readability) */
+    --grid-bg: #ffffff;
+    --grid-text: #1e293b;
+    --grid-line: #e2e8f0;
+    --grid-header-bg: #1e293b;
+    --grid-header-text: #94a3b8;
+    
+    --ribbon-height: 85px;
+    --formula-height: 32px;
+    --title-height: 40px;
+    --status-height: 26px;
 }
 
 * {
@@ -156,28 +163,53 @@ body {
 }
 
 .ribbon-content {
-    height: 60px;
+    height: auto;
+    min-height: 70px;
     display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 0;
+    align-items: stretch;
+    gap: 0;
+    padding: 6px 0;
 }
 
 .group {
     display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px;
+    border-right: 1px solid var(--border-color);
+}
+
+.group:last-child {
+    border-right: none;
+}
+
+.group-controls {
+    display: flex;
     gap: 4px;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+}
+
+.group-label {
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    margin-top: 4px;
+    opacity: 0.5;
+    user-select: none;
 }
 
 .divider {
-    width: 1px;
-    height: 24px;
-    background-color: var(--border-color);
-    margin: 0 8px;
+    display: none; /* Borders are now integrated into groups */
 }
 
 .divider-small {
     width: 1px;
-    height: 16px;
+    height: 14px;
     background-color: var(--border-color);
     margin: 0 4px;
 }
@@ -186,8 +218,8 @@ body {
     background: none;
     border: 1px solid transparent;
     color: var(--text-primary);
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
     border-radius: 4px;
     cursor: pointer;
     display: flex;
@@ -210,19 +242,20 @@ body {
 }
 
 .tool-btn-text {
-    font-size: 1.1rem;
+    font-size: 1rem;
     width: auto;
-    padding: 0 8px;
+    padding: 0 6px;
 }
 
 .tool-select, .tool-input {
     background-color: var(--bg-color);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
-    padding: 4px 8px;
+    padding: 2px 6px;
     border-radius: 4px;
-    font-size: 0.85rem;
+    font-size: 0.75rem;
     outline: none;
+    height: 24px;
 }
 
 .decimal-input {
@@ -357,8 +390,9 @@ body {
 .grid-container {
     flex: 1;
     overflow: auto;
-    background-color: var(--bg-color);
+    background-color: var(--grid-bg);
     position: relative;
+    color: var(--grid-text);
 }
 
 .spreadsheet-table {
@@ -379,6 +413,7 @@ body {
     box-sizing: border-box;
     display: table-cell;
     vertical-align: middle;
+    color: var(--grid-text);
 }
 
 .cell:focus {
@@ -399,8 +434,9 @@ body {
 }
 
 .cell.editing {
-    background-color: var(--bg-color);
-    box-shadow: inset 0 0 0 2px var(--accent-color), 0 4px 12px rgba(0,0,0,0.4);
+    background-color: var(--grid-bg);
+    color: var(--grid-text);
+    box-shadow: inset 0 0 0 2px var(--accent-color), 0 4px 12px rgba(0,0,0,0.15);
     z-index: 100;
     cursor: text;
     user-select: text;
@@ -412,13 +448,13 @@ body {
 
 /* Range Selection */
 .cell.in-range {
-    background-color: rgba(56, 189, 248, 0.08);
+    background-color: rgba(56, 189, 248, 0.08); /* Slightly increased */
 }
 
 .range-overlay {
     position: absolute;
     border: 2px solid var(--accent-color);
-    background-color: rgba(56, 189, 248, 0.05); /* Subtle background for selected range */
+    background-color: rgba(56, 189, 248, 0.12); /* Increased for on-white visibility */
     pointer-events: none;
     z-index: 14;
     box-sizing: border-box;
@@ -445,13 +481,14 @@ body {
 }
 
 .cell.header {
-    background-color: var(--surface-color);
-    color: var(--text-secondary);
+    background-color: var(--grid-header-bg);
+    color: var(--grid-header-text);
     text-align: center;
     font-weight: 600;
     position: sticky;
     top: 0;
     z-index: 5;
+    border: 1px solid var(--border-color);
 }
 
 .cell.row-header {
@@ -473,7 +510,7 @@ body {
     background-color: var(--accent-color);
     border: 1px solid var(--bg-color);
     cursor: crosshair;
-    z-index: 20;
+    z-index: 30; /* Higher than selection overlay (21) */
     pointer-events: auto;
     margin-left: -5px;
     margin-top: -5px;
@@ -604,6 +641,104 @@ body {
 ::-webkit-scrollbar-track {
     background: var(--bg-color);
 }
+
+/* Enhanced Visual Border Style Picker */
+.custom-dropdown {
+    position: relative;
+    width: 100%;
+}
+
+.dropdown-trigger {
+    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 0 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 25px;
+    width: 100%;
+    transition: all 0.2s;
+    user-select: none;
+}
+
+.dropdown-trigger:hover {
+    border-color: var(--accent-color);
+}
+
+.dropdown-trigger .style-preview {
+    flex: 1;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    border-radius: 2px;
+    padding: 0 4px;
+}
+
+.dropdown-trigger .style-preview svg {
+    width: 100%;
+    height: 100%;
+    stroke: #ffffff;
+}
+
+.dropdown-trigger .arrow {
+    font-size: 8px;
+    opacity: 0.7;
+}
+
+.dropdown-options {
+    position: absolute;
+    top: calc(100% + 5px);
+    left: 0;
+    width: 160px;
+    background-color: #252526; /* Specific dark surface */
+    border: 1px solid var(--accent-color);
+    border-radius: 4px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.7);
+    display: none;
+    z-index: 9999; /* Extreme z-index for ribbon popups */
+    padding: 2px;
+}
+
+.dropdown-options.show {
+    display: block;
+}
+
+.style-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+    color: #ffffff;
+    transition: background 0.1s;
+    border-radius: 2px;
+}
+
+.style-option:hover {
+    background-color: var(--accent-color);
+}
+
+.style-option.selected {
+    background-color: rgba(0, 120, 215, 0.4);
+}
+
+.style-option .style-label {
+    font-size: 0.75rem;
+    min-width: 40px;
+    opacity: 0.8;
+}
+
+.style-option svg {
+    flex: 1;
+    padding: 2px 4px;
+    border-radius: 2px;
+    height: 12px;
+    stroke: #ffffff !important;
+}
+
 
 ::-webkit-scrollbar-thumb {
     background: var(--border-color);

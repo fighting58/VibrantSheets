@@ -63,17 +63,23 @@ VibrantSheets는 브라우저에서 동작하는 Excel 스타일 스프레드시
 
 ## 4. 다음 단계
 
-### Phase 10: Persistence & Recovery
-- `localStorage` 자동 저장
-- 세션 복구/최근 파일 목록
-- 사용자 정의 리스트 관리(로컬 저장)
+### 2.10 테두리 엔진 및 안정성
+- 9종 아이콘 기반 테두리 배치 제어 (내부 가로/세로 포함)
+- 인접 셀 동기화(Mirror Rendering) 시스템
+- 행/열 다중 삭제 시 데이터 잔류 버그 수정 (shiftCoord 필터링)
+- IME(한글) 첫 글자 소실 해결 (Select All 전략)
 
-### Phase 10: Persistence & Recovery
-- `localStorage` 자동 저장
-- 세션 복구/최근 파일 목록
-- 사용자 정의 리스트 관리(로컬 저장)
+## 3. 아키텍처 요약
+- 단일 엔트리: `app.js` (`VibrantSheets` 클래스)
+- 함수 엔진: `formula_engine.js`
+- 스타일: `style.css` (컴팩트 리본 디자인 반영)
 
-## 5. 검증 체크리스트
+## 4. 다음 단계
+
+### Phase 12: Persistence & Recovery
+- `localStorage` 기반 자동 데이터 저장
+- 세션 복구 및 최근 파일 목록 유지
+- 사용자 정의 리스트 정보 유지
 - 멀티 시트 저장/불러오기(XLSX) 시 스타일 유지
 - CSV 저장 시 활성 시트만 저장 + 확인 모달
 - 수식 범위/순환 참조 동작

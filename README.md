@@ -14,22 +14,20 @@ VibrantSheets는 Vanilla JavaScript/CSS로 만든 웹 기반 스프레드시트 
 - 함수 엔진(간단): SUM/CONCAT/LEFT/RIGHT/MID, 참조/순환 참조 감지
 - 파일 입출력: VSHT/XLSX/CSV 저장 및 불러오기
 
-## 진행 중 (부분 구현)
-- **Phase 10: 셀 병합**
-  - 병합 범위 렌더링 및 선택 확장
-  - VSHT 저장/복구, XLSX import/export 반영
-  - 남은 작업: 병합 셀 편집/입력 제한 UX 검증
-- **Phase 11: 셀 테두리**
-  - 테두리 타입/스타일/색상 적용 UI
-  - `cellBorders` 저장 및 VSHT/XLSX 매핑
-  - 남은 작업: UX 검증 및 세부 스타일 고도화
+## 최근 업데이트 (완료)
+- **셀 테두리 시스템 (Phase 11):**
+  - 9종 아이콘 기반 직관적 배치 제어 (상/하/좌/우/외곽/전체/내부가로/내부세로/내부사각)
+  - SVG 아이콘 기반 커스텀 선 스타일 선택기 (점선, 점선-굵게, 이중선 등 지원)
+  - 미러링 렌더링(Mirror Rendering)을 적용하여 그리드 라인에 의한 테두리 잘림 현상 완벽 해결
+- **IME 입력 최적화:**
+  - 포커스 시 '전체 선택(Select All)' 전략을 도입하여 한글 첫 글자 분리 현상(rㅏ) 제거 및 매끄러운 입력 보장
+- **UI 리밸런싱:**
+  - 상단 리본 메뉴 및 아이콘 크기를 컴팩트하게 재조정하여 작업 공간 확대
 
-## 미구현 기능
-- Phase 12: 인쇄 설정
-- Phase 13: Persistence & Recovery
-  - 자동 저장(localStorage)
-  - 세션 복구
-  - 최근 파일 목록
+## 예정 기능 (Upcoming)
+- Phase 12: 자동 저장 및 세션 복구 (localStorage)
+- Phase 13: 인쇄 및 PDF 내보내기 설정
+- Phase 14: 이미지 삽입 및 자유 드로잉 레이어
 
 ## 문서
 - 진행 프로세스: `documents/PROCESS.md`

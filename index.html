@@ -35,137 +35,224 @@
                 <button class="tab">Data</button>
             </div>
             <div class="ribbon-content">
+                <!-- Group: Font -->
                 <div class="group">
-                    <button class="tool-btn" id="btn-bold" title="Bold (Ctrl+B)">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/></svg>
-                    </button>
-                    <button class="tool-btn" id="btn-italic" title="Italic (Ctrl+I)">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>
-                    </button>
-                    <button class="tool-btn" id="btn-underline" title="Underline (Ctrl+U)">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v7a6 6 0 0 0 12 0V3"/><line x1="4" y1="21" x2="20" y2="21"/></svg>
-                    </button>
-                    <button class="tool-btn" id="btn-strike" title="Strikethrough">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4H9a3 3 0 0 0-2.83 4"/><path d="M14 12a4 4 0 0 1 0 8H6"/><line x1="4" y1="12" x2="20" y2="12"/></svg>
-                    </button>
+                    <div class="group-controls">
+                        <select id="font-family" class="tool-select">
+                            <option value="Inter">Inter</option>
+                            <option value="Roboto">Roboto</option>
+                            <option value="Outfit">Outfit</option>
+                        </select>
+                        <input type="number" id="font-size" value="12" class="tool-input" style="width:45px">
+                        <div class="divider-small"></div>
+                        <button class="tool-btn" id="btn-bold" title="Bold (Ctrl+B)">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/></svg>
+                        </button>
+                        <button class="tool-btn" id="btn-italic" title="Italic (Ctrl+I)">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>
+                        </button>
+                        <button class="tool-btn" id="btn-underline" title="Underline (Ctrl+U)">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v7a6 6 0 0 0 12 0V3"/><line x1="4" y1="21" x2="20" y2="21"/></svg>
+                        </button>
+                        <button class="tool-btn" id="btn-strike" title="Strikethrough">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4H9a3 3 0 0 0-2.83 4"/><path d="M14 12a4 4 0 0 1 0 8H6"/><line x1="4" y1="12" x2="20" y2="12"/></svg>
+                        </button>
+                        <div class="divider-small"></div>
+                        <label class="color-picker-wrapper" title="Text Color" for="text-color">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 20 20 20"/><path d="M17 13l-5-8-5 8"/><path d="M6 13h12"/></svg>
+                            <input type="color" id="text-color" value="#ffffff">
+                        </label>
+                        <label class="color-picker-wrapper" title="Fill Color" for="bg-color">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/></svg>
+                            <input type="color" id="bg-color" value="#1e1e1e">
+                        </label>
+                    </div>
+                    <div class="group-label">Font</div>
                 </div>
-                <div class="divider"></div>
+
+                <!-- Group: Number -->
                 <div class="group">
-                    <label class="color-picker-wrapper" title="Text Color" for="text-color">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:2px"><polyline points="4 20 20 20"/><path d="M17 13l-5-8-5 8"/><path d="M6 13h12"/></svg>
-                        <input type="color" id="text-color" value="#ffffff">
-                    </label>
-                    <label class="color-picker-wrapper" title="Fill Color" for="bg-color">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:2px"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/></svg>
-                        <input type="color" id="bg-color" value="#1e1e1e">
-                    </label>
+                    <div class="group-controls">
+                        <select id="format-type" class="tool-select">
+                            <option value="general">General</option>
+                            <option value="currency">Currency (KRW)</option>
+                            <option value="percentage">Percentage</option>
+                            <option value="date">Date</option>
+                        </select>
+                        <div class="divider-small"></div>
+                        <button class="tool-btn" id="btn-decimal-decrease" title="Decrease Decimal">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 15-3-3 3-3"/><path d="M6 12h12"/><path d="M11 15h2v2h-2z"/><path d="M15 15h2v2h-2z"/><path d="M19 15h2v2h-2z"/></svg>
+                        </button>
+                        <input type="number" id="format-decimals" value="2" min="0" max="10" class="tool-input decimal-input">
+                        <button class="tool-btn" id="btn-decimal-increase" title="Increase Decimal">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 9 3 3-3 3"/><path d="M18 12H6"/><path d="M11 15h2v2h-2z"/><path d="M15 15h2v2h-2z"/><path d="M19 15h2v2h-2z"/></svg>
+                        </button>
+                    </div>
+                    <div class="group-label">Number</div>
                 </div>
+
+                <!-- Group: Alignment -->
                 <div class="group">
-                    <select id="font-family" class="tool-select">
-                        <option value="Inter">Inter</option>
-                        <option value="Roboto">Roboto</option>
-                        <option value="Outfit">Outfit</option>
-                    </select>
-                    <input type="number" id="font-size" value="12" class="tool-input">
+                    <div class="group-controls">
+                        <button class="tool-btn" id="btn-align-left" title="Align Left">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="17" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="17" y1="18" x2="3" y2="18"/></svg>
+                        </button>
+                        <button class="tool-btn" id="btn-align-center" title="Align Center">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="10" x2="6" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="18" y1="18" x2="6" y2="18"/></svg>
+                        </button>
+                        <button class="tool-btn" id="btn-align-right" title="Align Right">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="10" x2="7" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="7" y2="18"/></svg>
+                        </button>
+                        <div class="divider-small"></div>
+                        <button class="tool-btn" id="btn-merge-toggle" title="Merge / Unmerge Cells">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/><path d="M3 12h18"/><path d="m14 10-2 2 2 2"/><path d="m10 14 2-2-2-2"/></svg>
+                        </button>
+                    </div>
+                    <div class="group-label">Alignment</div>
                 </div>
-                <div class="divider"></div>
-                <div class="group" title="Number Format">
-                    <select id="format-type" class="tool-select">
-                        <option value="general">General</option>
-                        <option value="currency">Currency (KRW)</option>
-                        <option value="percentage">Percentage</option>
-                        <option value="date">Date</option>
-                    </select>
-                    <button class="tool-btn tool-btn-text" id="btn-decimal-decrease" title="Decrease Decimal">-</button>
-                    <input type="number" id="format-decimals" value="2" min="0" max="10" class="tool-input decimal-input">
-                    <button class="tool-btn tool-btn-text" id="btn-decimal-increase" title="Increase Decimal">+</button>
-                </div>
-                <div class="divider"></div>
+
+                <!-- Group: Borders -->
                 <div class="group">
-                    <button class="tool-btn" id="btn-align-left" title="Align Left">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="17" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="17" y1="18" x2="3" y2="18"/></svg>
-                    </button>
-                    <button class="tool-btn" id="btn-align-center" title="Align Center">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="10" x2="6" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="18" y1="18" x2="6" y2="18"/></svg>
-                    </button>
-                    <button class="tool-btn" id="btn-align-right" title="Align Right">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="10" x2="7" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="7" y2="18"/></svg>
-                    </button>
+                    <div class="group-controls" style="flex-direction: column; width: 105px; gap: 2px; padding: 0">
+                        <!-- Top Row: Style & Color -->
+                        <div style="display:flex; gap:2px; width: 100%; align-items:center">
+                            <div class="custom-dropdown" id="border-style-dropdown" style="flex: 1">
+                                <div class="dropdown-trigger" id="border-style-trigger" title="Line Style" style="height: 22px; padding: 0 4px;">
+                                    <div class="style-preview" style="flex:1; display:flex; align-items:center;">
+                                        <svg width="40" height="2"><line x1="0" y1="1" x2="40" y2="1" stroke="#e0e6f0" stroke-width="1"/></svg>
+                                    </div>
+                                    <span class="chevron" style="font-size: 8px; opacity:0.8; margin-left:2px;">▼</span>
+                                </div>
+                                <div class="dropdown-options" id="border-style-options" style="width: 130px;">
+                                    <div class="style-option" data-value="none">
+                                        <span class="style-label" style="width: 15px;">✕</span>
+                                        <span style="font-size: 0.7rem; color:#94a3b8">None</span>
+                                    </div>
+                                    <div class="style-option selected" data-value="solid-1">
+                                        <svg width="80" height="1"><line x1="0" y1="0.5" x2="80" y2="0.5" stroke="#e0e6f0" stroke-width="1"/></svg>
+                                    </div>
+                                    <div class="style-option" data-value="solid-2">
+                                        <svg width="80" height="2"><line x1="0" y1="1" x2="80" y2="1" stroke="#e0e6f0" stroke-width="2"/></svg>
+                                    </div>
+                                    <div class="style-option" data-value="solid-3">
+                                        <svg width="80" height="3"><line x1="0" y1="1.5" x2="80" y2="1.5" stroke="#e0e6f0" stroke-width="3"/></svg>
+                                    </div>
+                                    <div class="style-option" data-value="dotted-1">
+                                        <svg width="80" height="1"><line x1="0" y1="0.5" x2="80" y2="0.5" stroke="#e0e6f0" stroke-width="1" stroke-dasharray="1,1"/></svg>
+                                    </div>
+                                    <div class="style-option" data-value="dashed-1">
+                                        <svg width="80" height="1"><line x1="0" y1="0.5" x2="80" y2="0.5" stroke="#e0e6f0" stroke-width="1" stroke-dasharray="4,2"/></svg>
+                                    </div>
+                                    <div class="style-option" data-value="double-3">
+                                        <svg width="80" height="3">
+                                            <line x1="0" y1="0.5" x2="80" y2="0.5" stroke="#e0e6f0" stroke-width="0.5"/>
+                                            <line x1="0" y1="2.5" x2="80" y2="2.5" stroke="#e0e6f0" stroke-width="0.5"/>
+                                        </svg>
+                                    </div>
+                                </div>
+                            </div>
+                            <label class="color-picker-wrapper" title="Border Color" style="padding:0; height:22px; width:24px; border: 1px solid var(--border-color); border-radius: 4px; display:flex; align-items:center; justify-content:center; overflow:hidden">
+                                <input type="color" id="border-color" value="#000000" style="width:150%; height:150%; border:none; cursor:pointer">
+                            </label>
+                        </div>
+                        <!-- Bottom Area: Placement Icon Grid -->
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; width: 100%; margin-top: 1px">
+                            <button class="tool-btn border-type-btn" data-type="top" title="Top Border" style="width:100%; height:20px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="1" opacity="0.2"/><line x1="3" y1="3.5" x2="21" y2="3.5" stroke-width="3"/></svg></button>
+                            <button class="tool-btn border-type-btn" data-type="bottom" title="Bottom Border" style="width:100%; height:20px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="1" opacity="0.2"/><line x1="3" y1="20.5" x2="21" y2="20.5" stroke-width="3"/></svg></button>
+                            <button class="tool-btn border-type-btn" data-type="left" title="Left Border" style="width:100%; height:20px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="1" opacity="0.2"/><line x1="3.5" y1="3" x2="3.5" y2="21" stroke-width="3"/></svg></button>
+                            
+                            <button class="tool-btn border-type-btn" data-type="right" title="Right Border" style="width:100%; height:20px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="1" opacity="0.2"/><line x1="20.5" y1="3" x2="20.5" y2="21" stroke-width="3"/></svg></button>
+                            <button class="tool-btn border-type-btn" data-type="outer" title="Outside Borders" style="width:100%; height:20px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="1"/></svg></button>
+                            <button class="tool-btn border-type-btn" data-type="all" title="All Borders" style="width:100%; height:20px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M12 3v18"/><path d="M3 12h18"/></svg></button>
+                            
+                            <button class="tool-btn border-type-btn" data-type="inner-h" title="Inside Horizontal Border" style="width:100%; height:20px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="1" opacity="0.2"/><line x1="3" y1="12" x2="21" y2="12" stroke-width="3"/></svg></button>
+                            <button class="tool-btn border-type-btn" data-type="inner-v" title="Inside Vertical Border" style="width:100%; height:20px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="1" opacity="0.2"/><line x1="12" y1="3" x2="12" y2="21" stroke-width="3"/></svg></button>
+                            <button class="tool-btn border-type-btn" data-type="inner" title="Inside Borders" style="width:100%; height:20px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1" opacity="0.2"/><path d="M12 3v18"/><path d="M3 12h18"/></svg></button>
+                        </div>
+                    </div>
+                    <div class="group-label">Borders</div>
                 </div>
-                <div class="divider"></div>
-                <div class="group" title="Borders">
-                    <select id="border-type" class="tool-select">
-                        <option value="all">Border: All</option>
-                        <option value="outer">Border: Outer</option>
-                        <option value="inner">Border: Inner</option>
-                        <option value="left">Border: Left</option>
-                        <option value="right">Border: Right</option>
-                        <option value="top">Border: Top</option>
-                        <option value="bottom">Border: Bottom</option>
-                        <option value="none">Border: None</option>
-                    </select>
-                    <select id="border-style" class="tool-select">
-                        <option value="solid">Solid</option>
-                        <option value="dashed">Dashed</option>
-                        <option value="dotted">Dotted</option>
-                    </select>
-                    <label class="color-picker-wrapper" title="Border Color" for="border-color">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg>
-                        <input type="color" id="border-color" value="#000000">
-                    </label>
-                    <button class="tool-btn tool-btn-text" id="btn-apply-border" title="Apply Border">Apply</button>
-                </div>
-                <div class="divider"></div>
-                <div class="group" title="Merge Cells">
-                    <button class="tool-btn tool-btn-text" id="btn-merge" title="Merge Cells">Merge</button>
-                    <button class="tool-btn tool-btn-text" id="btn-unmerge" title="Unmerge Cells">Unmerge</button>
-                </div>
-                <div class="divider"></div>
-                <div class="group" title="Find / Replace">
-                    <input type="text" id="find-input" class="tool-input find-input" placeholder="Find">
-                    <input type="text" id="replace-input" class="tool-input find-input" placeholder="Replace">
-                    <label class="tool-checkbox"><input type="checkbox" id="find-case">Aa</label>
-                    <label class="tool-checkbox"><input type="checkbox" id="find-exact">=</label>
-                    <button class="tool-btn tool-btn-text" id="btn-find-prev" title="Previous">◀</button>
-                    <button class="tool-btn tool-btn-text" id="btn-find-next" title="Next">▶</button>
-                    <button class="tool-btn tool-btn-text" id="btn-replace" title="Replace">R</button>
-                    <button class="tool-btn tool-btn-text" id="btn-replace-all" title="Replace All">All</button>
-                </div>
-                <div class="divider"></div>
-                <div class="group" title="Fill Options">
-                    <label class="tool-checkbox"><input type="checkbox" id="fill-skip-blanks">Skip Blanks</label>
-                </div>
-                <div class="divider"></div>
-                <div class="group" title="Custom Lists">
-                    <button class="tool-btn tool-btn-text" id="btn-custom-lists" title="Custom Lists">List</button>
-                </div>
-                <div class="divider"></div>
+
+                <!-- Group: Cells -->
                 <div class="group">
-                    <button class="tool-btn" id="btn-open" title="Open (Ctrl+O)">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder-open"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H19a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v2"/></svg>
-                    </button>
-                    <button class="tool-btn" id="btn-save" title="Save (Ctrl+S)">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-save"><path d="M15.2 3H19a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.8"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V3"/></svg>
-                    </button>
-                    <button class="tool-btn" id="btn-save-as" title="Save As...">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-save-all"><path d="M10 2v3a1 1 0 0 0 1 1h5"/><path d="M18 18v-6a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6"/><path d="M18 22H4a2 2 0 0 1-2-2V6"/><path d="M8 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h6.8l5.2 5.2V16a2 2 0 0 1-2 2Z"/></svg>
-                    </button>
+                    <div class="group-controls">
+                        <button class="tool-btn" id="btn-insert-row" title="Insert Row Above">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="12" y1="6" x2="12" y2="12"/><line x1="9" y1="9" x2="15" y2="9"/></svg>
+                        </button>
+                        <button class="tool-btn" id="btn-delete-row" title="Delete Current Row">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="9" x2="15" y2="9"/></svg>
+                        </button>
+                        <div class="divider-small"></div>
+                        <button class="tool-btn" id="btn-insert-col" title="Insert Column Left">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="6" y1="12" x2="12" y2="12"/><line x1="9" y1="9" x2="9" y2="15"/></svg>
+                        </button>
+                        <button class="tool-btn" id="btn-delete-col" title="Delete Current Column">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="6" y1="12" x2="12" y2="12"/></svg>
+                        </button>
+                    </div>
+                    <div class="group-label">Cells</div>
                 </div>
-                <div class="divider"></div>
-                <div class="group" title="Table Operations">
-                    <button class="tool-btn" id="btn-insert-row" title="Insert Row Above">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="12" y1="6" x2="12" y2="12"/><line x1="9" y1="9" x2="15" y2="9"/></svg>
-                    </button>
-                    <button class="tool-btn" id="btn-delete-row" title="Delete Current Row">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="9" x2="15" y2="9"/></svg>
-                    </button>
-                    <div class="divider-small"></div>
-                    <button class="tool-btn" id="btn-insert-col" title="Insert Column Left">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="6" y1="12" x2="12" y2="12"/><line x1="9" y1="9" x2="9" y2="15"/></svg>
-                    </button>
-                    <button class="tool-btn" id="btn-delete-col" title="Delete Current Column">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="6" y1="12" x2="12" y2="12"/></svg>
-                    </button>
+
+                <!-- Group: Edit -->
+                <div class="group">
+                    <div class="group-controls">
+                        <div style="display:flex; flex-direction:column; gap:2px">
+                            <input type="text" id="find-input" class="tool-input find-input" placeholder="Find" style="height:25px; padding:2px 6px; font-size:0.75rem">
+                            <input type="text" id="replace-input" class="tool-input find-input" placeholder="Replace" style="height:25px; padding:2px 6px; font-size:0.75rem">
+                        </div>
+                        <div style="display:flex; flex-direction:column; gap:2px">
+                            <label class="tool-checkbox" style="height:25px; padding:0 4px; font-size: 0.65rem; min-width: 32px" title="Case Sensitive">
+                                <input type="checkbox" id="find-case"> Aa
+                            </label>
+                            <label class="tool-checkbox" style="height:25px; padding:0 4px; font-size: 0.65rem; min-width: 32px" title="Exact Match">
+                                <input type="checkbox" id="find-exact"> =
+                            </label>
+                        </div>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:2px">
+                            <button class="tool-btn" id="btn-find-prev" title="Previous" style="width:25px; height:25px">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                            </button>
+                            <button class="tool-btn" id="btn-find-next" title="Next" style="width:25px; height:25px">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                            </button>
+                            <button class="tool-btn" id="btn-replace" title="Replace" style="width:25px; height:25px">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/><path d="M3 17v-6h6"/><path d="M21 7a9 9 0 0 0-9 9 9 9 0 0 0-6-2.3L3 11"/></svg>
+                            </button>
+                            <button class="tool-btn" id="btn-replace-all" title="Replace All" style="width:25px; height:25px">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/><path d="M3 17v-6h6"/><path d="M21 7a9 9 0 0 0-9 9 9 9 0 0 0-6-2.3L3 11"/><path d="M12 12v6"/><path d="M12 12H6"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="group-label">Edit</div>
+                </div>
+
+                <!-- Group: Data -->
+                <div class="group">
+                    <div class="group-controls">
+                        <label class="tool-checkbox" style="height:25px; padding:0 4px"><input type="checkbox" id="fill-skip-blanks">Skip Blanks</label>
+                        <button class="tool-btn" id="btn-custom-lists" title="Custom Lists">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                        </button>
+                    </div>
+                    <div class="group-label">Data</div>
+                </div>
+
+                <!-- Group: File -->
+                <div class="group">
+                    <div class="group-controls">
+                        <button class="tool-btn" id="btn-open" title="Open (Ctrl+O)" style="border: 1px solid var(--border-color); width:40px; height:40px">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H19a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v2"/></svg>
+                        </button>
+                        <div style="display:flex; flex-direction:column; gap:2px">
+                            <button class="tool-btn" id="btn-save" title="Save (Ctrl+S)" style="width:25px; height:25px">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3H19a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.8"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V3"/></svg>
+                            </button>
+                            <button class="tool-btn" id="btn-save-as" title="Save As..." style="width:25px; height:25px">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v3a1 1 0 0 0 1 1h5"/><path d="M18 18v-6a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6"/><path d="M18 22H4a2 2 0 0 1-2-2V6"/><path d="M8 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h6.8l5.2 5.2V16a2 2 0 0 1-2 2Z"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="group-label">File</div>
                 </div>
             </div>
         </nav>

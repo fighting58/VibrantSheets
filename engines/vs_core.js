@@ -53,6 +53,11 @@ class VibrantSheets {
         this.sheetClickTimer = null;
         this.formulaEngine = typeof FormulaEngine !== 'undefined' ? new FormulaEngine() : null;
         this.formulaCache = new Map();
+        
+        // Border selection state
+        this.currentBorderStyle = 'solid-1';
+        this.currentBorderType = 'all';
+
         this.init();
     }
 
@@ -177,7 +182,10 @@ class VibrantSheets {
         // Create Selection & Resize Visuals
         this.selectionOverlay = this.createOverlay('selection-overlay');
         this.rangeOverlay = this.createOverlay('range-overlay');
+        
         this.fillHandle = this.createOverlay('fill-handle');
+        this.fillHandle.addEventListener('mousedown', (e) => this.handleFillStart(e));
+        
         this.resizeGuide = this.createOverlay('resize-guide');
         this.fillPreview = this.createOverlay('fill-preview');
 
@@ -779,15 +787,58 @@ class VibrantSheets {
         document.getElementById('font-family').addEventListener('change', (e) => this.applyStyle('fontFamily', e.target.value));
         document.getElementById('font-size').addEventListener('input', (e) => this.applyStyle('fontSize', e.target.value + 'pt'));
 
-        const borderBtn = document.getElementById('btn-apply-border');
-        if (borderBtn) {
-            borderBtn.addEventListener('click', () => {
-                const type = document.getElementById('border-type')?.value || 'all';
-                const style = document.getElementById('border-style')?.value || 'solid';
-                const color = document.getElementById('border-color')?.value || '#000000';
-                this.applyBorder(type, style, color);
+        // Custom Border Style Dropdown Logic
+        const bsTrigger = document.getElementById('border-style-trigger');
+        const bsOptions = document.getElementById('border-style-options');
+        if (bsTrigger && bsOptions) {
+            bsTrigger.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                bsOptions.classList.toggle('show');
+            });
+
+            bsOptions.querySelectorAll('.style-option').forEach(opt => {
+                opt.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const val = opt.getAttribute('data-value');
+                    this.currentBorderStyle = val;
+                    
+                    // Update trigger UI preview
+                    let previewHtml = '';
+                    if (val === 'none') {
+                        previewHtml = '<div style="font-size: 0.75rem; color:#94a3b8; width: 100%; text-align: center;">None ✕</div>';
+                    } else {
+                        previewHtml = opt.querySelector('svg').outerHTML;
+                    }
+                    
+                    const preview = bsTrigger.querySelector('.style-preview');
+                    if (preview) preview.innerHTML = previewHtml;
+                    
+                    // Mark selection visually
+                    bsOptions.querySelectorAll('.style-option').forEach(o => o.classList.remove('selected'));
+                    opt.classList.add('selected');
+                    
+                    bsOptions.classList.remove('show');
+                });
+            });
+
+            // Close on any click outside
+            document.addEventListener('click', (e) => {
+                if (!bsTrigger.contains(e.target)) {
+                    bsOptions.classList.remove('show');
+                }
             });
         }
+
+        // Border Type Icon Buttons
+        document.querySelectorAll('.border-type-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const type = btn.getAttribute('data-type');
+                this.currentBorderType = type;
+                const color = document.getElementById('border-color')?.value || '#000000';
+                this.applyBorder(type, this.currentBorderStyle, color);
+            });
+        });
 
         // Phase 7: Data formatting
         document.getElementById('format-type').addEventListener('change', (e) => {
@@ -807,12 +858,14 @@ class VibrantSheets {
         this.findExact = document.getElementById('find-exact');
 
         const refreshFind = () => this.updateFindResults();
-        this.findInput.addEventListener('input', refreshFind);
-        this.replaceInput.addEventListener('input', () => {
-            this.findState.replace = this.replaceInput.value || '';
-        });
-        this.findCase.addEventListener('change', refreshFind);
-        this.findExact.addEventListener('change', refreshFind);
+        if (this.findInput) this.findInput.addEventListener('input', refreshFind);
+        if (this.replaceInput) {
+            this.replaceInput.addEventListener('input', () => {
+                this.findState.replace = this.replaceInput.value || '';
+            });
+        }
+        if (this.findCase) this.findCase.addEventListener('change', refreshFind);
+        if (this.findExact) this.findExact.addEventListener('change', refreshFind);
         document.getElementById('btn-find-prev').addEventListener('click', () => this.gotoFindMatch(-1));
         document.getElementById('btn-find-next').addEventListener('click', () => this.gotoFindMatch(1));
         document.getElementById('btn-replace').addEventListener('click', () => this.replaceCurrentMatch());
@@ -829,10 +882,8 @@ class VibrantSheets {
         document.getElementById('btn-insert-col').addEventListener('click', () => this.insertColumn());
         document.getElementById('btn-delete-col').addEventListener('click', () => this.deleteColumn());
 
-        const mergeBtn = document.getElementById('btn-merge');
-        if (mergeBtn) mergeBtn.addEventListener('click', () => this.mergeSelection());
-        const unmergeBtn = document.getElementById('btn-unmerge');
-        if (unmergeBtn) unmergeBtn.addEventListener('click', () => this.unmergeSelection());
+        const mergeToggleBtn = document.getElementById('btn-merge-toggle');
+        if (mergeToggleBtn) mergeToggleBtn.addEventListener('click', () => this.toggleMergeSelection());
 
         // Hidden file input for CSV import
         this.fileInput = document.getElementById('csv-file-input');
@@ -952,11 +1003,6 @@ class VibrantSheets {
                 }
             }
         });
-
-        // Fill Handle
-        this.createFillHandle();
-        this.createSelectionOverlay();
-        this.createRangeOverlay();
 
         // Resize Handlers
         this.setupResizeHandlers();
@@ -1308,6 +1354,14 @@ class VibrantSheets {
         // Always make focused cell editable to support seamless IME start
         if (!this.isEditing) {
             cell.contentEditable = true;
+            
+            // CRITICAL for IME: Select all content so first keystroke replaces it naturally
+            // This prevents the "rㅏ" bug where the first IME character is lost during manual clearing.
+            const range = document.createRange();
+            range.selectNodeContents(cell);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
         }
     }
 
@@ -1457,6 +1511,8 @@ class VibrantSheets {
             decimalsInput.value = format.decimals ?? '';
             decimalsInput.disabled = format.type === 'date';
         }
+        // Merge toggle state
+        setBtnActive('btn-merge-toggle', cell.classList.contains('merge-anchor'));
     }
 
     renderStyles(cell) {
@@ -1470,19 +1526,38 @@ class VibrantSheets {
 
     renderBorders(cell) {
         const id = cell.dataset.id;
-        const border = this.cellBorders?.[id];
-        if (!border) {
-            cell.style.borderTop = '';
-            cell.style.borderRight = '';
-            cell.style.borderBottom = '';
-            cell.style.borderLeft = '';
-            return;
-        }
-        const toCss = (b) => b ? `${b.width || 1}px ${b.style || 'solid'} ${b.color || '#000000'}` : '';
-        cell.style.borderTop = toCss(border.top);
-        cell.style.borderRight = toCss(border.right);
-        cell.style.borderBottom = toCss(border.bottom);
-        cell.style.borderLeft = toCss(border.left);
+        const parsed = this.parseCellId(id);
+        if (!parsed) return;
+        
+        const colNum = parsed.colNum;
+        const rowNum = parsed.row;
+
+        const getBorder = (c, r, s) => {
+            const tempId = `${this.numberToCol(c)}${r}`;
+            return this.cellBorders?.[tempId]?.[s];
+        };
+
+        // 자신의 테두리와 인접 셀의 테두리를 양방향으로 평가하여, 하나라도 있으면 그 테두리를 양쪽 셀 렌더링에 모두 적용함
+        // (Webkit 계열의 border-collapse 충돌 시 특정 방향(bottom, right)이 우선시되어 지워지는 현상 방지)
+        const topBorder = getBorder(colNum, rowNum, 'top') || (rowNum > 1 ? getBorder(colNum, rowNum - 1, 'bottom') : null);
+        const rightBorder = getBorder(colNum, rowNum, 'right') || (colNum < this.cols ? getBorder(colNum + 1, rowNum, 'left') : null);
+        const bottomBorder = getBorder(colNum, rowNum, 'bottom') || (rowNum < this.rows ? getBorder(colNum, rowNum + 1, 'top') : null);
+        const leftBorder = getBorder(colNum, rowNum, 'left') || (colNum > 1 ? getBorder(colNum - 1, rowNum, 'right') : null);
+
+        const toCss = (b) => b ? `${b.width || 1}px ${b.style || 'solid'} ${b.color || '#000000'}` : null;
+        
+        const applyOrRemove = (side, val) => {
+            if (val) {
+                cell.style.setProperty(`border-${side}`, val, 'important');
+            } else {
+                cell.style.removeProperty(`border-${side}`);
+            }
+        };
+
+        applyOrRemove('top', toCss(topBorder));
+        applyOrRemove('right', toCss(rightBorder));
+        applyOrRemove('bottom', toCss(bottomBorder));
+        applyOrRemove('left', toCss(leftBorder));
     }
 
     updateSelectionOverlay() {
@@ -1544,8 +1619,9 @@ class VibrantSheets {
     handleCompositionStart(cell) {
         this.isComposing = true;
         if (!this.isEditing) {
-            // Enter edit mode for IME without overwrite selection.
-            this.prepareEnterMode(cell, false);
+            this.isEditing = true;
+            this.originalValue = this.getRawValue(cell.dataset.id);
+            cell.classList.add('editing');
         }
         this.needsOverwrite = false;
         // Ensure no selection remains that could be replaced on space.
@@ -1856,6 +1932,30 @@ class VibrantSheets {
         return null;
     }
 
+    toggleMergeSelection() {
+        const range = this.getEffectiveRange();
+        if (!range) return;
+        
+        const expanded = this.expandRangeToIncludeMerges(range);
+        const isAlreadyMerged = this.isEntirelyMerged(expanded);
+        
+        if (isAlreadyMerged) {
+            this.unmergeSelection();
+        } else {
+            this.mergeSelection();
+        }
+    }
+
+    isEntirelyMerged(range) {
+        const existing = this.getNormalizedMergedRanges();
+        return existing.some(m => 
+            m.startCol === range.startCol && 
+            m.startRow === range.startRow && 
+            m.endCol === range.endCol && 
+            m.endRow === range.endRow
+        );
+    }
+
     mergeSelection() {
         const range = this.getEffectiveRange();
         if (!range) return;
@@ -1898,15 +1998,26 @@ class VibrantSheets {
         this.markDirty();
     }
 
-    applyBorder(type, style, color) {
+    applyBorder(type, styleStr, color) {
         const range = this.getEffectiveRange();
         if (!range) return;
 
+        // Parse style and width (e.g., 'solid-2' -> style: solid, width: 2)
+        let style = 'solid';
+        let width = 1;
+        if (styleStr && styleStr.includes('-')) {
+            const parts = styleStr.split('-');
+            style = parts[0];
+            width = parseInt(parts[1]) || 1;
+        } else if (styleStr) {
+            style = styleStr;
+        }
+
         const expanded = this.expandRangeToIncludeMerges(range);
         const border = {
-            style: style || 'solid',
+            style: style,
             color: color || '#000000',
-            width: 1
+            width: width
         };
 
         const applySide = (cellId, side, value) => {
@@ -1926,6 +2037,8 @@ class VibrantSheets {
             if (type === 'all') return ['top', 'right', 'bottom', 'left'];
             if (type === 'outer') return ['top', 'right', 'bottom', 'left'];
             if (type === 'inner') return ['top', 'left'];
+            if (type === 'inner-v') return ['left'];
+            if (type === 'inner-h') return ['top'];
             return [type];
         };
 
@@ -1942,6 +2055,20 @@ class VibrantSheets {
                 if (side === 'left') return c > expanded.startCol;
                 return false;
             }
+            if (type === 'inner-v') {
+                if (side === 'left') return c > expanded.startCol;
+                return false;
+            }
+            if (type === 'inner-h') {
+                if (side === 'top') return r > expanded.startRow;
+                return false;
+            }
+            // 특정 모서리 단일 테두리에 대해서는 전체 선택 영역의 외곽 가장자리만 적용
+            if (type === 'top') return r === expanded.startRow;
+            if (type === 'bottom') return r === expanded.endRow;
+            if (type === 'left') return c === expanded.startCol;
+            if (type === 'right') return c === expanded.endCol;
+
             return true;
         };
 
@@ -1962,7 +2089,7 @@ class VibrantSheets {
                         )
                         : true;
                     if (isBoundary && shouldApply(side, r, c, merge)) {
-                        applySide(targetId, side, type === 'none' ? null : border);
+                        applySide(targetId, side, (type === 'none' || style === 'none') ? null : border);
                     }
                 });
             }
@@ -2027,29 +2154,10 @@ class VibrantSheets {
         this.updateFillHandlePosition();
     }
 
-    // ─── Range Overlay & Fill Handle DOM ───────────────────
-    createRangeOverlay() {
-        this.rangeOverlay = document.createElement('div');
-        this.rangeOverlay.className = 'range-overlay';
-        this.rangeOverlay.style.display = 'none';
-        this.container.appendChild(this.rangeOverlay);
-    }
-
-    createFillHandle() {
-        this.fillHandle = document.createElement('div');
-        this.fillHandle.className = 'fill-handle';
-        this.fillHandle.style.display = 'none';
-        this.container.appendChild(this.fillHandle);
-        
-        this.fillHandle.addEventListener('mousedown', (e) => this.handleFillStart(e));
-    }
-
-    createSelectionOverlay() {
-        this.selectionOverlay = document.createElement('div');
-        this.selectionOverlay.className = 'selection-overlay';
-        this.selectionOverlay.style.display = 'none';
-        this.container.appendChild(this.selectionOverlay);
-    }
+    // Simplified Overlay methods (Already handled in init)
+    createRangeOverlay() {}
+    createFillHandle() {}
+    createSelectionOverlay() {}
 
     updateFillHandlePosition() {
         const range = this.getEffectiveRange();
@@ -2872,11 +2980,17 @@ class VibrantSheets {
         if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
             const isImeKey = e.isComposing || e.key === 'Process' || e.key === 'Unidentified';
             if (isImeKey) {
-                // Avoid enter-mode here; let IME composition start on the focused cell.
+                this.isEditing = true; // Flag we are now in edit state
                 return;
             }
-            this.prepareEnterMode(activeCell, true);
-            // DO NOT e.preventDefault() -> Let the browser insert the first char
+            
+            // Transition to editing mode without manual clearing (the selection from handleCellFocus will handle overwriting)
+            this.isEditing = true;
+            this.originalValue = this.getRawValue(activeCell.dataset.id);
+            activeCell.classList.add('editing');
+            
+            // Note: We don't call prepareEnterMode here because that clears the text manually,
+            // which breaks IME hook. The "Select All" in handleCellFocus handles the clean overwrite.
             return;
         }
 
@@ -2974,7 +3088,7 @@ class VibrantSheets {
             const nextCell = this.getSelectableCell(nextCol, nextRow);
             if (nextCell) {
                 nextCell.focus({ preventScroll: true });
-                this.handleCellFocus(nextCell);
+                // Note: focus event will trigger handleCellFocus(nextCell) automatically
                 this.updateFillHandlePosition();
             }
         }
@@ -3027,29 +3141,18 @@ class VibrantSheets {
         this.needsOverwrite = overwrite;
         
         cell.classList.add('editing');
-        cell.innerText = this.originalValue;
-        if (overwrite) {
-            // Select all text in the cell so the next keystroke replaces it (Overwrite behavior)
-            const range = document.createRange();
-            const sel = window.getSelection();
-            range.selectNodeContents(cell);
-            sel.removeAllRanges();
-            sel.addRange(range);
-        } else {
-            // Place caret at end for IME-friendly composition
-            const range = document.createRange();
-            const sel = window.getSelection();
-            range.selectNodeContents(cell);
-            range.collapse(false);
-            sel.removeAllRanges();
-            sel.addRange(range);
-        }
+        cell.innerText = overwrite ? '' : this.originalValue;
+        
+        // CRITICAL: Setting innerText = '' often clears the caret in some browsers.
+        // We must re-establish a selection within the cell so typing works.
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.selectNodeContents(cell);
+        range.collapse(false); // End of empty is same as start
+        sel.removeAllRanges();
+        sel.addRange(range);
         
         this.markDirty();
-    }
-
-    enterEnterMode(cell) {
-        this.prepareEnterMode(cell);
     }
 
     enterEnterMode(cell) {
@@ -4077,12 +4180,17 @@ class VibrantSheets {
         const newFormulas = {};
         const newBorders = {};
 
-        // Helper to shift a single coordinate
-        const shiftCoord = (coord, t, d) => (coord >= t ? coord + d : coord);
+        // Helper to shift a single coordinate and filter out deleted ones
+        const shiftCoord = (coord, t, d) => {
+            if (d < 0 && coord >= t + d && coord < t) return -1;
+            return coord >= t ? coord + d : coord;
+        };
 
         // Process data
         for (const key in this.data) {
-            const { col, row, colNum } = this.parseCellId(key);
+            const parsed = this.parseCellId(key);
+            if (!parsed) continue;
+            const { col, row, colNum } = parsed;
             let nRow = row;
             let nColNum = colNum;
 

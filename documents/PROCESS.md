@@ -11,6 +11,7 @@
 5. Phase 13.1: 자동 저장(localStorage)
 6. Phase 13.2: 세션 복구
 7. Phase 13.3: 최근 파일 목록
+8. Phase 14: 이미지 삽입
 
 ## 구현 상태 요약
 
@@ -33,6 +34,7 @@
 - Phase 11: 셀 테두리
 - Phase 12: 인쇄 설정
 - Phase 13: Persistence & Recovery
+- Phase 14: 이미지 삽입
 
 ## Phase 10: 셀 병합 상세
 
@@ -112,7 +114,32 @@
 - `formula_engine.js`: 수식 엔진
 - `bootstrap.js`: 초기화
 
+## Phase 14: 이미지 삽입 (미구현)
+
+### 요구 사항 요약
+- 이미지 업로드: 로컬 파일 선택(`<input type="file">`) 또는 URL 입력
+- 이미지 배치: 셀 위에 플로팅 레이어로 표시 (셀에 종속되지 않는 독립 객체)
+- 크기/위치 조정: 드래그로 이동, 핸들로 리사이즈
+- 이미지 선택/삭제: 클릭으로 선택, Delete 키로 삭제
+- 저장/불러오기:
+  - `.vsht`: Base64로 인코딩하여 JSON 내 `sheetImages` 배열에 저장
+  - `.xlsx`: ExcelJS의 `addImage` API를 사용하여 Excel 호환 이미지 삽입
+
+### 구현 체크리스트
+- [ ] 이미지 상태 구조 설계: 시트별 `sheetImages[]` (id, src, anchorCell, width, height, top, left)
+- [ ] 이미지 렌더링 레이어: 그리드 위에 절대 위치 `<div>` 컨테이너로 오버레이
+- [ ] 삽입 UI: 리본에 "이미지 삽입" 버튼 추가 (파일 선택 + URL 입력 모달)
+- [ ] 드래그 이동 및 리사이즈 핸들 구현
+- [ ] 이미지 선택 상태 및 Delete 키 삭제 처리
+- [ ] VSHT 저장: Base64 직렬화 / 복원
+- [ ] XLSX export: ExcelJS `workbook.addImage` + `worksheet.addImage` 매핑
+
+### 모듈 배치 계획
+- 이미지 상태 및 렌더링 로직: `vs_core.js` 내 `ImageLayer` 클래스로 분리
+- VSHT/XLSX 직렬화: `vs_io.js`에 이미지 직렬화/역직렬화 메서드 추가
+
 ## 다음 단계 제안
 1. 병합 기능의 붙여넣기/편집 충돌 정책 확정
 2. 셀 테두리 데이터 구조 설계 및 렌더링 레이어 추가
 3. 인쇄 설정 UI 및 저장 구조 설계
+4. 이미지 삽입 상태 구조 및 렌더링 레이어 설계
