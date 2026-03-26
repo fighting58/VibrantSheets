@@ -93,6 +93,34 @@
                     </button>
                 </div>
                 <div class="divider"></div>
+                <div class="group" title="Borders">
+                    <select id="border-type" class="tool-select">
+                        <option value="all">Border: All</option>
+                        <option value="outer">Border: Outer</option>
+                        <option value="inner">Border: Inner</option>
+                        <option value="left">Border: Left</option>
+                        <option value="right">Border: Right</option>
+                        <option value="top">Border: Top</option>
+                        <option value="bottom">Border: Bottom</option>
+                        <option value="none">Border: None</option>
+                    </select>
+                    <select id="border-style" class="tool-select">
+                        <option value="solid">Solid</option>
+                        <option value="dashed">Dashed</option>
+                        <option value="dotted">Dotted</option>
+                    </select>
+                    <label class="color-picker-wrapper" title="Border Color" for="border-color">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg>
+                        <input type="color" id="border-color" value="#000000">
+                    </label>
+                    <button class="tool-btn tool-btn-text" id="btn-apply-border" title="Apply Border">Apply</button>
+                </div>
+                <div class="divider"></div>
+                <div class="group" title="Merge Cells">
+                    <button class="tool-btn tool-btn-text" id="btn-merge" title="Merge Cells">Merge</button>
+                    <button class="tool-btn tool-btn-text" id="btn-unmerge" title="Unmerge Cells">Unmerge</button>
+                </div>
+                <div class="divider"></div>
                 <div class="group" title="Find / Replace">
                     <input type="text" id="find-input" class="tool-input find-input" placeholder="Find">
                     <input type="text" id="replace-input" class="tool-input find-input" placeholder="Replace">
@@ -196,7 +224,10 @@
             </div>
         </div>
     </div>
-    <script src="formula_engine.js"></script>
-    <script src="app.js"></script>
+    <script src="engines/formula_engine.js"></script>
+    <script src="engines/vs_find.js"></script>
+    <script src="engines/vs_io.js"></script>
+    <script src="engines/vs_core.js"></script>
+    <script src="engines/bootstrap.js"></script>
 </body>
 </html>

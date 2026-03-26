@@ -57,14 +57,7 @@ class VibrantSheets {
     }
 
     async confirmCsvSingleSheet() {
-        if (this.sheets.length <= 1) return true;
-        if (this.csvConfirmInProgress) return false;
-        this.csvConfirmInProgress = true;
-        const proceed = await this.showConfirmAsync(
-            'CSV는 활성 시트만 저장할 수 있습니다. 전체 시트를 저장하려면 다른 형식을 선택하세요. 계속 저장할까요?'
-        );
-        this.csvConfirmInProgress = false;
-        return proceed;
+        return window.VSIO.confirmCsvSingleSheet(this);
     }
 
     hasAnyStyles() {
@@ -72,7 +65,7 @@ class VibrantSheets {
     }
 
     async confirmXlsxStyleWarning() {
-        return true;
+        return window.VSIO.confirmXlsxStyleWarning(this);
     }
 
     get activeSheet() {
@@ -127,6 +120,22 @@ class VibrantSheets {
         this.activeSheet.cellFormulas = value;
     }
 
+    get cellBorders() {
+        return this.activeSheet.cellBorders;
+    }
+
+    set cellBorders(value) {
+        this.activeSheet.cellBorders = value;
+    }
+
+    get mergedRanges() {
+        return this.activeSheet.mergedRanges;
+    }
+
+    set mergedRanges(value) {
+        this.activeSheet.mergedRanges = value;
+    }
+
     get colWidths() {
         return this.activeSheet.colWidths;
     }
@@ -152,6 +161,8 @@ class VibrantSheets {
             cellStyles: {},
             cellFormats: {},
             cellFormulas: {},
+            cellBorders: {},
+            mergedRanges: [],
             colWidths: new Array(this.baseCols).fill(100),
             rowHeights: new Array(this.baseRows + 1).fill(25)
         };
@@ -217,38 +228,42 @@ class VibrantSheets {
     }
 
     getRawValue(cellId) {
-        const formula = this.cellFormulas[cellId];
+        const normalizedId = this.normalizeMergedCellId(cellId);
+        const formula = this.cellFormulas[normalizedId];
         if (formula) return '=' + formula;
-        const val = this.data[cellId];
+        const val = this.data[normalizedId];
         return val === undefined || val === null ? '' : String(val);
     }
 
     setRawValue(cellId, value) {
+        const normalizedId = this.normalizeMergedCellId(cellId);
         const text = value === undefined || value === null ? '' : String(value);
         if (text.trim().startsWith('=')) {
-            this.cellFormulas[cellId] = text.trim().slice(1);
-            delete this.data[cellId];
+            this.cellFormulas[normalizedId] = text.trim().slice(1);
+            delete this.data[normalizedId];
         } else {
-            delete this.cellFormulas[cellId];
-            this.data[cellId] = text;
+            delete this.cellFormulas[normalizedId];
+            this.data[normalizedId] = text;
         }
     }
 
     getRawValueForSheet(sheet, cellId) {
-        const formula = sheet.cellFormulas?.[cellId];
+        const normalizedId = this.normalizeMergedCellId(cellId, sheet);
+        const formula = sheet.cellFormulas?.[normalizedId];
         if (formula) return '=' + formula;
-        const val = sheet.data[cellId];
+        const val = sheet.data[normalizedId];
         return val === undefined || val === null ? '' : String(val);
     }
 
     setRawValueForSheet(sheet, cellId, value) {
+        const normalizedId = this.normalizeMergedCellId(cellId, sheet);
         const text = value === undefined || value === null ? '' : String(value);
         if (text.trim().startsWith('=')) {
-            sheet.cellFormulas[cellId] = text.trim().slice(1);
-            delete sheet.data[cellId];
+            sheet.cellFormulas[normalizedId] = text.trim().slice(1);
+            delete sheet.data[normalizedId];
         } else {
-            delete sheet.cellFormulas[cellId];
-            sheet.data[cellId] = text;
+            delete sheet.cellFormulas[normalizedId];
+            sheet.data[normalizedId] = text;
         }
     }
 
@@ -277,21 +292,24 @@ class VibrantSheets {
     }
 
     getCellFormat(cellId) {
-        const stored = this.cellFormats[cellId] || {};
+        const normalizedId = this.normalizeMergedCellId(cellId);
+        const stored = this.cellFormats[normalizedId] || {};
         return this.normalizeFormat(stored);
     }
 
     getCellFormatForSheet(sheet, cellId) {
-        const stored = sheet.cellFormats[cellId] || {};
+        const normalizedId = this.normalizeMergedCellId(cellId, sheet);
+        const stored = sheet.cellFormats[normalizedId] || {};
         return this.normalizeFormat(stored);
     }
 
     setCellFormat(cellId, format) {
+        const normalizedId = this.normalizeMergedCellId(cellId);
         const normalized = this.normalizeFormat(format);
         if (this.isDefaultFormat(normalized)) {
-            delete this.cellFormats[cellId];
+            delete this.cellFormats[normalizedId];
         } else {
-            this.cellFormats[cellId] = normalized;
+            this.cellFormats[normalizedId] = normalized;
         }
     }
 
@@ -443,8 +461,171 @@ class VibrantSheets {
         return String(cellId).toUpperCase().replace(/\$/g, '');
     }
 
+    normalizeMergedRangeEntry(range) {
+        if (!range) return null;
+        const startCol = range.startCol ?? range.c1 ?? range.col1 ?? range.left ?? range.start?.col ?? range.start?.c;
+        const startRow = range.startRow ?? range.r1 ?? range.row1 ?? range.top ?? range.start?.row ?? range.start?.r;
+        const endCol = range.endCol ?? range.c2 ?? range.col2 ?? range.right ?? range.end?.col ?? range.end?.c;
+        const endRow = range.endRow ?? range.r2 ?? range.row2 ?? range.bottom ?? range.end?.row ?? range.end?.r;
+        if (!startCol || !startRow || !endCol || !endRow) return null;
+        return {
+            startCol: Math.min(startCol, endCol),
+            startRow: Math.min(startRow, endRow),
+            endCol: Math.max(startCol, endCol),
+            endRow: Math.max(startRow, endRow)
+        };
+    }
+
+    getNormalizedMergedRanges(sheet = this.activeSheet) {
+        const ranges = Array.isArray(sheet?.mergedRanges) ? sheet.mergedRanges : [];
+        const normalized = [];
+        ranges.forEach((range) => {
+            const norm = this.normalizeMergedRangeEntry(range);
+            if (norm) normalized.push(norm);
+        });
+        return normalized;
+    }
+
+    normalizeMergedCellId(cellId, sheet = this.activeSheet) {
+        const safeId = this.normalizeCellRef(cellId);
+        if (!safeId) return safeId;
+        const { colNum, row } = this.parseCellId(safeId);
+        const range = this.getMergedRangeAt(colNum, row, sheet);
+        if (!range) return safeId;
+        return `${this.numberToCol(range.startCol)}${range.startRow}`;
+    }
+
+    rangesIntersect(a, b) {
+        return !(a.endCol < b.startCol || a.startCol > b.endCol || a.endRow < b.startRow || a.startRow > b.endRow);
+    }
+
+    getMergedRangeAt(colNum, row, sheet = this.activeSheet) {
+        const ranges = this.getNormalizedMergedRanges(sheet);
+        return ranges.find((range) => (
+            colNum >= range.startCol &&
+            colNum <= range.endCol &&
+            row >= range.startRow &&
+            row <= range.endRow
+        )) || null;
+    }
+
+    getMergedAnchorForCell(colNum, row, sheet = this.activeSheet) {
+        const range = this.getMergedRangeAt(colNum, row, sheet);
+        if (!range) return null;
+        return { colNum: range.startCol, row: range.startRow };
+    }
+
+    expandRangeToIncludeMerges(range, sheet = this.activeSheet) {
+        let expanded = { ...range };
+        let changed = true;
+        while (changed) {
+            changed = false;
+            const ranges = this.getNormalizedMergedRanges(sheet);
+            ranges.forEach((merge) => {
+                if (this.rangesIntersect(expanded, merge)) {
+                    const next = {
+                        startCol: Math.min(expanded.startCol, merge.startCol),
+                        startRow: Math.min(expanded.startRow, merge.startRow),
+                        endCol: Math.max(expanded.endCol, merge.endCol),
+                        endRow: Math.max(expanded.endRow, merge.endRow)
+                    };
+                    if (
+                        next.startCol !== expanded.startCol ||
+                        next.startRow !== expanded.startRow ||
+                        next.endCol !== expanded.endCol ||
+                        next.endRow !== expanded.endRow
+                    ) {
+                        expanded = next;
+                        changed = true;
+                    }
+                }
+            });
+        }
+        return expanded;
+    }
+
+    rangeIntersectsMerges(range, sheet = this.activeSheet) {
+        const ranges = this.getNormalizedMergedRanges(sheet);
+        return ranges.some((merge) => this.rangesIntersect(range, merge));
+    }
+
+    unmergeRange(range) {
+        if (!range) return false;
+        const normalized = this.expandRangeToIncludeMerges(range);
+        const existing = this.getNormalizedMergedRanges();
+        const next = existing.filter((merge) => !this.rangesIntersect(merge, normalized));
+        if (next.length === existing.length) return false;
+        this.mergedRanges = next;
+        this.applyMergesToGrid();
+        return true;
+    }
+
+    parseRangeRef(rangeRef) {
+        if (!rangeRef || typeof rangeRef !== 'string') return null;
+        const parts = rangeRef.split(':');
+        const start = parts[0];
+        const end = parts[1] || parts[0];
+        if (!start) return null;
+        const a = this.parseCellId(this.normalizeCellRef(start));
+        const b = this.parseCellId(this.normalizeCellRef(end));
+        return {
+            startCol: Math.min(a.colNum, b.colNum),
+            startRow: Math.min(a.row, b.row),
+            endCol: Math.max(a.colNum, b.colNum),
+            endRow: Math.max(a.row, b.row)
+        };
+    }
+
+    getSelectableCell(colNum, row) {
+        const anchor = this.getMergedAnchorForCell(colNum, row);
+        if (anchor) {
+            return this.getCellEl(anchor.colNum, anchor.row);
+        }
+        return this.getCellEl(colNum, row);
+    }
+
+    getCellRectForCoord(colNum, row) {
+        const range = this.getMergedRangeAt(colNum, row);
+        const anchor = range ? this.getCellEl(range.startCol, range.startRow) : this.getCellEl(colNum, row);
+        return anchor ? anchor.getBoundingClientRect() : null;
+    }
+
+    applyMergesToGrid() {
+        if (!this.tbody) return;
+        const cells = this.tbody.querySelectorAll('.cell');
+        cells.forEach((cell) => {
+            if (cell.classList.contains('header')) return;
+            cell.style.display = '';
+            cell.classList.remove('merge-hidden');
+            cell.classList.remove('merge-anchor');
+            cell.removeAttribute('rowspan');
+            cell.removeAttribute('colspan');
+            if (cell.tabIndex < 0) cell.tabIndex = 0;
+        });
+
+        const ranges = this.getNormalizedMergedRanges();
+        ranges.forEach((range) => {
+            const anchorCell = this.getCellEl(range.startCol, range.startRow);
+            if (!anchorCell) return;
+            anchorCell.setAttribute('rowspan', String(range.endRow - range.startRow + 1));
+            anchorCell.setAttribute('colspan', String(range.endCol - range.startCol + 1));
+            anchorCell.classList.add('merge-anchor');
+            for (let r = range.startRow; r <= range.endRow; r++) {
+                for (let c = range.startCol; c <= range.endCol; c++) {
+                    if (r === range.startRow && c === range.startCol) continue;
+                    const cell = this.getCellEl(c, r);
+                    if (!cell) continue;
+                    cell.style.display = 'none';
+                    cell.classList.add('merge-hidden');
+                    cell.tabIndex = -1;
+                }
+            }
+        });
+    }
+
     renderCellById(cellId) {
-        const cell = document.querySelector(`[data-id="${cellId}"]`);
+        const normalizedId = this.normalizeMergedCellId(cellId);
+        const cell = document.querySelector(`[data-id="${normalizedId}"]`);
         if (cell) this.renderCellValue(cell);
     }
 
@@ -496,6 +677,7 @@ class VibrantSheets {
         this.createRowElements(1, this.rows);
         
         this.container.appendChild(table);
+        this.applyMergesToGrid();
     }
 
     createRowElements(startRow, endRow) {
@@ -597,6 +779,16 @@ class VibrantSheets {
         document.getElementById('font-family').addEventListener('change', (e) => this.applyStyle('fontFamily', e.target.value));
         document.getElementById('font-size').addEventListener('input', (e) => this.applyStyle('fontSize', e.target.value + 'pt'));
 
+        const borderBtn = document.getElementById('btn-apply-border');
+        if (borderBtn) {
+            borderBtn.addEventListener('click', () => {
+                const type = document.getElementById('border-type')?.value || 'all';
+                const style = document.getElementById('border-style')?.value || 'solid';
+                const color = document.getElementById('border-color')?.value || '#000000';
+                this.applyBorder(type, style, color);
+            });
+        }
+
         // Phase 7: Data formatting
         document.getElementById('format-type').addEventListener('change', (e) => {
             const selectedType = e.target.value;
@@ -637,6 +829,11 @@ class VibrantSheets {
         document.getElementById('btn-insert-col').addEventListener('click', () => this.insertColumn());
         document.getElementById('btn-delete-col').addEventListener('click', () => this.deleteColumn());
 
+        const mergeBtn = document.getElementById('btn-merge');
+        if (mergeBtn) mergeBtn.addEventListener('click', () => this.mergeSelection());
+        const unmergeBtn = document.getElementById('btn-unmerge');
+        if (unmergeBtn) unmergeBtn.addEventListener('click', () => this.unmergeSelection());
+
         // Hidden file input for CSV import
         this.fileInput = document.getElementById('csv-file-input');
         this.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
@@ -648,6 +845,7 @@ class VibrantSheets {
                 const rowsToAdd = 30;
                 this.createRowElements(this.rows + 1, this.rows + rowsToAdd);
                 this.rows += rowsToAdd;
+                this.applyMergesToGrid();
             }
         });
 
@@ -1088,8 +1286,17 @@ class VibrantSheets {
 
     // ─── Cell Focus / Input ────────────────────────────────
     handleCellFocus(cell) {
-        this.selectedCell = cell;
         const cellId = cell.dataset.id;
+        const normalizedId = this.normalizeMergedCellId(cellId);
+        if (normalizedId !== cellId) {
+            const { colNum, row } = this.parseCellId(normalizedId);
+            const anchorCell = this.getCellEl(colNum, row);
+            if (anchorCell && anchorCell !== cell) {
+                anchorCell.focus({ preventScroll: true });
+                return;
+            }
+        }
+        this.selectedCell = cell;
         this.cellAddress.innerText = cellId;
         this.formulaInput.value = this.getRawValue(cellId);
         const { colNum, row } = this.parseCellId(cellId);
@@ -1258,6 +1465,24 @@ class VibrantSheets {
         if (style) {
             Object.assign(cell.style, style);
         }
+        this.renderBorders(cell);
+    }
+
+    renderBorders(cell) {
+        const id = cell.dataset.id;
+        const border = this.cellBorders?.[id];
+        if (!border) {
+            cell.style.borderTop = '';
+            cell.style.borderRight = '';
+            cell.style.borderBottom = '';
+            cell.style.borderLeft = '';
+            return;
+        }
+        const toCss = (b) => b ? `${b.width || 1}px ${b.style || 'solid'} ${b.color || '#000000'}` : '';
+        cell.style.borderTop = toCss(border.top);
+        cell.style.borderRight = toCss(border.right);
+        cell.style.borderBottom = toCss(border.bottom);
+        cell.style.borderLeft = toCss(border.left);
     }
 
     updateSelectionOverlay() {
@@ -1369,145 +1594,42 @@ class VibrantSheets {
     }
 
     updateFindResults() {
-        const query = this.findInput ? this.findInput.value : '';
-        const replace = this.replaceInput ? this.replaceInput.value : '';
-        const matchCase = this.findCase ? this.findCase.checked : false;
-        const exact = this.findExact ? this.findExact.checked : false;
-
-        this.findState.query = query;
-        this.findState.replace = replace;
-        this.findState.matchCase = matchCase;
-        this.findState.exact = exact;
-
-        this.clearFindHighlights();
-
-        if (!query) {
-            this.findState.matches = [];
-            this.findState.currentIndex = -1;
-            return;
-        }
-
-        const target = matchCase ? query : query.toLowerCase();
-        const matches = [];
-
-        const keys = new Set([
-            ...Object.keys(this.data),
-            ...Object.keys(this.cellFormulas)
-        ]);
-        for (const key of keys) {
-            const rawValue = this.getRawValue(key);
-            if (!rawValue) continue;
-            const hay = matchCase ? rawValue : rawValue.toLowerCase();
-            const isMatch = exact ? hay === target : hay.includes(target);
-            if (isMatch) matches.push(key);
-        }
-
-        matches.sort((a, b) => {
-            const pa = this.parseCellId(a);
-            const pb = this.parseCellId(b);
-            if (pa.row !== pb.row) return pa.row - pb.row;
-            return pa.colNum - pb.colNum;
-        });
-
-        this.findState.matches = matches;
-        if (this.findState.currentIndex >= matches.length) {
-            this.findState.currentIndex = matches.length - 1;
-        }
-        if (matches.length === 0) {
-            this.findState.currentIndex = -1;
-        }
-
-        this.applyFindHighlights();
+        return window.VSFind.updateFindResults(this);
     }
 
     refreshFindIfActive() {
-        if (this.findState.query) {
-            this.updateFindResults();
-        }
+        return window.VSFind.refreshFindIfActive(this);
     }
 
     clearFindHighlights() {
-        document.querySelectorAll('.cell.match').forEach(cell => cell.classList.remove('match'));
+        return window.VSFind.clearFindHighlights(this);
     }
 
     applyFindHighlights() {
-        this.findState.matches.forEach((cellId) => {
-            const cell = this.getCellEl(cellId.match(/[A-Z]+/)[0], parseInt(cellId.match(/\d+/)[0]));
-            if (cell) cell.classList.add('match');
-        });
+        return window.VSFind.applyFindHighlights(this);
     }
 
     selectFindMatch(index) {
-        const cellId = this.findState.matches[index];
-        if (!cellId) return;
-        const { colNum, row } = this.parseCellId(cellId);
-        const cell = this.getCellEl(colNum, row);
-        if (!cell) return;
-
-        this.clearRangeSelection();
-        this.setSelectionRange(colNum, row, colNum, row);
-        cell.focus({ preventScroll: true });
-        this.handleCellFocus(cell);
-        this.updateRangeVisual();
-        this.updateFillHandlePosition();
+        return window.VSFind.selectFindMatch(this, index);
     }
 
     gotoFindMatch(direction) {
-        const total = this.findState.matches.length;
-        if (total === 0) return;
-
-        let nextIndex = this.findState.currentIndex + direction;
-        if (nextIndex < 0) nextIndex = total - 1;
-        if (nextIndex >= total) nextIndex = 0;
-
-        this.findState.currentIndex = nextIndex;
-        this.selectFindMatch(nextIndex);
+        return window.VSFind.gotoFindMatch(this, direction);
     }
 
     replaceCurrentMatch() {
-        const idx = this.findState.currentIndex;
-        if (idx < 0) return;
-        const cellId = this.findState.matches[idx];
-        if (!cellId) return;
-
-        const rawValue = this.getRawValue(cellId);
-        const updated = this.replaceInValue(rawValue);
-        this.setRawValue(cellId, updated);
-        this.renderCellById(cellId);
-        this.markDirty();
-        this.updateItemCount();
-        this.updateFindResults();
+        return window.VSFind.replaceCurrentMatch(this);
     }
 
     replaceAllMatches() {
-        if (this.findState.matches.length === 0) return;
-        this.findState.matches.forEach((cellId) => {
-            const rawValue = this.getRawValue(cellId);
-            const updated = this.replaceInValue(rawValue);
-            this.setRawValue(cellId, updated);
-            this.renderCellById(cellId);
-        });
-        this.markDirty();
-        this.updateItemCount();
-        this.updateFindResults();
+        return window.VSFind.replaceAllMatches(this);
     }
 
     replaceInValue(rawValue) {
-        const query = this.findState.query || '';
-        if (!query) return rawValue;
-
-        const replaceValue = this.findState.replace || '';
-        if (this.findState.exact) {
-            const a = this.findState.matchCase ? rawValue : rawValue.toLowerCase();
-            const b = this.findState.matchCase ? query : query.toLowerCase();
-            return a === b ? replaceValue : rawValue;
-        }
-
-        const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const flags = this.findState.matchCase ? 'g' : 'gi';
-        const re = new RegExp(escaped, flags);
-        return rawValue.replace(re, replaceValue);
+        return window.VSFind.replaceInValue(this, rawValue);
     }
+
+    // Find/Replace methods are loaded from engines/vs_find.js
 
     // ─── Range Selection ───────────────────────────────────
     isNearResizeEdge(headerEl, e, type) {
@@ -1566,7 +1688,7 @@ class VibrantSheets {
 
         const focusCol = type === 'col' ? Math.min(startIndex, endIndex) : 1;
         const focusRow = type === 'row' ? Math.min(startIndex, endIndex) : 1;
-        const focusCell = this.getCellEl(focusCol, focusRow);
+        const focusCell = this.getSelectableCell(focusCol, focusRow);
         if (focusCell) {
             this.selectedCell = focusCell;
             this.cellAddress.innerText = focusCell.dataset.id;
@@ -1581,8 +1703,18 @@ class VibrantSheets {
         // Don't start selection if clicking fill handle
         if (e.target.classList.contains('fill-handle')) return;
 
-        const cellId = cell.dataset.id;
-        const { col, row, colNum } = this.parseCellId(cellId);
+        let cellId = cell.dataset.id;
+        let { row, colNum } = this.parseCellId(cellId);
+        const anchor = this.getMergedAnchorForCell(colNum, row);
+        if (anchor) {
+            colNum = anchor.colNum;
+            row = anchor.row;
+            const anchorCell = this.getCellEl(colNum, row);
+            if (anchorCell) {
+                cell = anchorCell;
+                cellId = anchorCell.dataset.id;
+            }
+        }
 
         // Enter Edit mode if already selected (second click)
         if (this.selectedCell === cell && !this.isEditing && !e.shiftKey) {
@@ -1632,12 +1764,13 @@ class VibrantSheets {
     }
 
     setSelectionRange(c1, r1, c2, r2) {
-        this.selectionRange = {
+        const baseRange = {
             startCol: Math.min(c1, c2),
             startRow: Math.min(r1, r2),
             endCol: Math.max(c1, c2),
             endRow: Math.max(r1, r2)
         };
+        this.selectionRange = this.expandRangeToIncludeMerges(baseRange);
     }
 
     clearRangeSelection() {
@@ -1685,12 +1818,10 @@ class VibrantSheets {
         }
 
         // Update border overlay
-        const topLeftCell = this.getCellEl(startCol, startRow);
-        const bottomRightCell = this.getCellEl(endCol, endRow);
+        const tlRect = this.getCellRectForCoord(startCol, startRow);
+        const brRect = this.getCellRectForCoord(endCol, endRow);
 
-        if (topLeftCell && bottomRightCell && this.rangeOverlay) {
-            const tlRect = topLeftCell.getBoundingClientRect();
-            const brRect = bottomRightCell.getBoundingClientRect();
+        if (tlRect && brRect && this.rangeOverlay) {
             const containerRect = this.container.getBoundingClientRect();
 
             this.rangeOverlay.style.display = 'block';
@@ -1723,6 +1854,171 @@ class VibrantSheets {
             return { startCol: colNum, startRow: row, endCol: colNum, endRow: row };
         }
         return null;
+    }
+
+    mergeSelection() {
+        const range = this.getEffectiveRange();
+        if (!range) return;
+        const normalized = this.expandRangeToIncludeMerges(range);
+        const isSingleCell = normalized.startCol === normalized.endCol && normalized.startRow === normalized.endRow;
+        if (isSingleCell) return;
+
+        const existing = this.getNormalizedMergedRanges();
+        const keep = [];
+        existing.forEach((merge) => {
+            if (!this.rangesIntersect(merge, normalized)) {
+                keep.push(merge);
+            }
+        });
+        this.mergedRanges = keep;
+
+        for (let r = normalized.startRow; r <= normalized.endRow; r++) {
+            for (let c = normalized.startCol; c <= normalized.endCol; c++) {
+                if (r === normalized.startRow && c === normalized.startCol) continue;
+                const cellId = `${this.numberToCol(c)}${r}`;
+                delete this.data[cellId];
+                delete this.cellFormulas[cellId];
+            }
+        }
+
+        this.mergedRanges = [
+            ...this.getNormalizedMergedRanges(),
+            normalized
+        ];
+
+        this.applyMergesToGrid();
+        this.setSelectionRange(normalized.startCol, normalized.startRow, normalized.endCol, normalized.endRow);
+        const anchorCell = this.getCellEl(normalized.startCol, normalized.startRow);
+        if (anchorCell) {
+            anchorCell.focus({ preventScroll: true });
+            this.handleCellFocus(anchorCell);
+        }
+        this.updateRangeVisual();
+        this.updateFillHandlePosition();
+        this.markDirty();
+    }
+
+    applyBorder(type, style, color) {
+        const range = this.getEffectiveRange();
+        if (!range) return;
+
+        const expanded = this.expandRangeToIncludeMerges(range);
+        const border = {
+            style: style || 'solid',
+            color: color || '#000000',
+            width: 1
+        };
+
+        const applySide = (cellId, side, value) => {
+            if (!this.cellBorders[cellId]) this.cellBorders[cellId] = {};
+            if (value) {
+                this.cellBorders[cellId][side] = value;
+            } else {
+                delete this.cellBorders[cellId][side];
+                if (Object.keys(this.cellBorders[cellId]).length === 0) {
+                    delete this.cellBorders[cellId];
+                }
+            }
+        };
+
+        const sidesForType = () => {
+            if (type === 'none') return ['top', 'right', 'bottom', 'left'];
+            if (type === 'all') return ['top', 'right', 'bottom', 'left'];
+            if (type === 'outer') return ['top', 'right', 'bottom', 'left'];
+            if (type === 'inner') return ['top', 'left'];
+            return [type];
+        };
+
+        const shouldApply = (side, r, c, merge) => {
+            if (type === 'all') return true;
+            if (type === 'outer') {
+                if (side === 'top') return r === expanded.startRow;
+                if (side === 'bottom') return r === expanded.endRow;
+                if (side === 'left') return c === expanded.startCol;
+                if (side === 'right') return c === expanded.endCol;
+            }
+            if (type === 'inner') {
+                if (side === 'top') return r > expanded.startRow;
+                if (side === 'left') return c > expanded.startCol;
+                return false;
+            }
+            return true;
+        };
+
+        for (let r = expanded.startRow; r <= expanded.endRow; r++) {
+            for (let c = expanded.startCol; c <= expanded.endCol; c++) {
+                const merge = this.getMergedRangeAt(c, r);
+                const targetId = merge
+                    ? `${this.numberToCol(merge.startCol)}${merge.startRow}`
+                    : `${this.numberToCol(c)}${r}`;
+                const sides = sidesForType();
+                sides.forEach((side) => {
+                    const isBoundary = merge
+                        ? (
+                            (side === 'top' && r === merge.startRow) ||
+                            (side === 'bottom' && r === merge.endRow) ||
+                            (side === 'left' && c === merge.startCol) ||
+                            (side === 'right' && c === merge.endCol)
+                        )
+                        : true;
+                    if (isBoundary && shouldApply(side, r, c, merge)) {
+                        applySide(targetId, side, type === 'none' ? null : border);
+                    }
+                });
+            }
+        }
+
+        this.refreshGridUI();
+        this.markDirty();
+    }
+
+    unmergeSelection() {
+        const range = this.getEffectiveRange();
+        if (!range) return;
+        const normalized = this.expandRangeToIncludeMerges(range);
+
+        const existing = this.getNormalizedMergedRanges();
+        const next = existing.filter((merge) => !this.rangesIntersect(merge, normalized));
+        if (next.length === existing.length) return;
+
+        this.mergedRanges = next;
+        this.applyMergesToGrid();
+        this.updateRangeVisual();
+        this.updateFillHandlePosition();
+        this.markDirty();
+    }
+
+    shiftMergedRanges(type, threshold, delta) {
+        const ranges = this.getNormalizedMergedRanges();
+        if (ranges.length === 0) return;
+
+        const isRow = type === 'row';
+        const removedStart = delta < 0 ? threshold + delta : null;
+        const removedEnd = delta < 0 ? threshold - 1 : null;
+        const shiftCoord = (coord) => (coord >= threshold ? coord + delta : coord);
+
+        const next = [];
+        ranges.forEach((range) => {
+            if (delta < 0) {
+                const start = isRow ? range.startRow : range.startCol;
+                const end = isRow ? range.endRow : range.endCol;
+                if (start <= removedEnd && end >= removedStart) {
+                    return;
+                }
+            }
+
+            const updated = {
+                startCol: isRow ? range.startCol : shiftCoord(range.startCol),
+                endCol: isRow ? range.endCol : shiftCoord(range.endCol),
+                startRow: isRow ? shiftCoord(range.startRow) : range.startRow,
+                endRow: isRow ? shiftCoord(range.endRow) : range.endRow
+            };
+
+            if (updated.startCol < 1 || updated.startRow < 1) return;
+            next.push(updated);
+        });
+
+        this.mergedRanges = next;
     }
 
     selectAll() {
@@ -1762,13 +2058,11 @@ class VibrantSheets {
             return;
         }
 
-        const bottomRightCell = this.getCellEl(range.endCol, range.endRow);
-        if (!bottomRightCell) {
+        const rect = this.getCellRectForCoord(range.endCol, range.endRow);
+        if (!rect) {
             this.fillHandle.style.display = 'none';
             return;
         }
-
-        const rect = bottomRightCell.getBoundingClientRect();
         const containerRect = this.container.getBoundingClientRect();
 
         this.fillHandle.style.display = 'block';
@@ -2376,9 +2670,20 @@ class VibrantSheets {
 
         if (rowsData.length === 0) return;
 
-        // Perform Paste
+        // Determine paste range and handle merged cells policy
         const numRows = rowsData.length;
         const numCols = rowsData[0].length;
+        const pasteRange = {
+            startCol: anchor.colNum,
+            startRow: anchor.row,
+            endCol: anchor.colNum + numCols - 1,
+            endRow: anchor.row + numRows - 1
+        };
+
+        const isSingleCellPaste = numRows === 1 && numCols === 1;
+        if (!isSingleCellPaste && this.rangeIntersectsMerges(pasteRange)) {
+            this.unmergeRange(pasteRange);
+        }
 
         for (let r = 0; r < numRows; r++) {
             for (let c = 0; c < numCols; c++) {
@@ -2666,7 +2971,7 @@ class VibrantSheets {
         if (moved) {
             this.clearRangeSelection();
             this.setSelectionRange(nextCol, nextRow, nextCol, nextRow);
-            const nextCell = this.getCellEl(nextCol, nextRow);
+            const nextCell = this.getSelectableCell(nextCol, nextRow);
             if (nextCell) {
                 nextCell.focus({ preventScroll: true });
                 this.handleCellFocus(nextCell);
@@ -2679,6 +2984,15 @@ class VibrantSheets {
     enterEditMode(cell) {
         if (this.isEditing) return;
         const cellId = cell.dataset.id;
+        const normalizedId = this.normalizeMergedCellId(cellId);
+        if (normalizedId !== cellId) {
+            const { colNum, row } = this.parseCellId(normalizedId);
+            const anchorCell = this.getCellEl(colNum, row);
+            if (anchorCell) {
+                cell = anchorCell;
+            }
+        }
+        if (cell.classList.contains('merge-hidden')) return;
         this.isEditing = true;
         this.needsOverwrite = false;
         this.originalValue = this.getRawValue(cellId);
@@ -2699,6 +3013,15 @@ class VibrantSheets {
     prepareEnterMode(cell, overwrite = true) {
         if (this.isEditing) return;
         const cellId = cell.dataset.id;
+        const normalizedId = this.normalizeMergedCellId(cellId);
+        if (normalizedId !== cellId) {
+            const { colNum, row } = this.parseCellId(normalizedId);
+            const anchorCell = this.getCellEl(colNum, row);
+            if (anchorCell) {
+                cell = anchorCell;
+            }
+        }
+        if (cell.classList.contains('merge-hidden')) return;
         this.isEditing = true;
         this.originalValue = this.getRawValue(cellId);
         this.needsOverwrite = overwrite;
@@ -2764,7 +3087,7 @@ class VibrantSheets {
         const nextCol = Math.max(1, Math.min(this.cols, colNum + deltaCol));
         const nextRow = Math.max(1, Math.min(this.rows, row + deltaRow));
         
-        const nextCell = this.getCellEl(nextCol, nextRow);
+        const nextCell = this.getSelectableCell(nextCol, nextRow);
         if (nextCell) {
             nextCell.focus();
             this.handleCellFocus(nextCell);
@@ -2807,7 +3130,7 @@ class VibrantSheets {
         this.updateFillHandlePosition();
 
         // Move focus to the target cell
-        const targetCell = this.getCellEl(targetCol, targetRow);
+        const targetCell = this.getSelectableCell(targetCol, targetRow);
         if (targetCell) {
             targetCell.focus();
             this.selectedCell = targetCell;
@@ -2817,41 +3140,19 @@ class VibrantSheets {
     }
 
     // ─── File Import / Export ───────────────────────────────
+    // File Import / Export methods are loaded from engines/vs_io.js
     async openFileDialog() {
-        if ('showOpenFilePicker' in window) {
-            try {
-                const [handle] = await window.showOpenFilePicker({
-                    types: [
-                        {
-                            description: 'VibrantSheets / Excel Files',
-                            accept: {
-                                'application/json': ['.vsht'],
-                                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-                                'text/csv': ['.csv', '.tsv', '.txt']
-                            }
-                        }
-                    ],
-                    multiple: false
-                });
-                const file = await handle.getFile();
-                this.processFile(file, handle);
-            } catch (err) {
-                if (err.name === 'AbortError') return;
-                console.error('File Picker failed, falling back:', err);
-                this.fileInput.click();
-            }
-        } else {
-            this.fileInput.click();
-        }
+        return window.VSIO.openFileDialog(this);
     }
 
     handleFileSelect(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        this.processFile(file, null);
+        return window.VSIO.handleFileSelect(this, e);
     }
 
+    // File Import / Export methods are loaded from engines/vs_io.js
+
     processFile(file, handle = null) {
+        return window.VSIO.processFile(this, file, handle);
         // Check if there's existing data
         const hasData = Object.keys(this.data).some(k => this.data[k] && this.data[k].trim() !== '');
         if (hasData) {
@@ -2896,48 +3197,17 @@ class VibrantSheets {
 
     // 1. .vsht Import (JSON based, full layout)
     importVSHT(jsonText) {
-        const doc = JSON.parse(jsonText);
-        
-        // Clear current
-        this.clearAllData(false);
-
-        // Restore Metadata
-        if (doc.sheets && Array.isArray(doc.sheets) && doc.sheets.length > 0) {
-            this.sheets = doc.sheets.map((sheet, idx) => ({
-                name: sheet.name || `Sheet${idx + 1}`,
-                rows: sheet.rows || this.baseRows,
-                cols: sheet.cols || this.baseCols,
-                data: sheet.data || {},
-                cellStyles: sheet.cellStyles || {},
-                cellFormats: sheet.cellFormats || {},
-                cellFormulas: sheet.cellFormulas || {},
-                colWidths: sheet.colWidths || new Array(this.baseCols).fill(100),
-                rowHeights: sheet.rowHeights || new Array(this.baseRows + 1).fill(25)
-            }));
-            this.activeSheetIndex = Math.min(Math.max(doc.activeSheetIndex || 0, 0), this.sheets.length - 1);
-        } else {
-            if (doc.colWidths) this.colWidths = doc.colWidths;
-            if (doc.rowHeights) this.rowHeights = doc.rowHeights;
-            this.data = doc.data || {};
-            this.cellStyles = doc.cellStyles || {};
-            this.cellFormats = doc.cellFormats || {};
-            this.cellFormulas = doc.cellFormulas || {};
-        }
-
-        // Re-render or Refresh UI
-        this.refreshGridUI();
-        this.renderSheetTabs();
-        
-        this.updateItemCount();
-        this.markClean();
+        return window.VSIO.importVSHT(this, jsonText);
     }
 
     // 2. .xlsx Import (using SheetJS)
     async importXLSX(buffer) {
+        return window.VSIO.importXLSX(this, buffer);
         return this.importXLSXExcelJS(buffer);
     }
 
     async importXLSXExcelJS(buffer) {
+        return window.VSIO.importXLSXExcelJS(this, buffer);
         if (typeof ExcelJS === 'undefined') {
             alert('Excel 라이브러리를 불러오지 못했습니다. 네트워크 연결을 확인해 주세요.');
             return;
@@ -2982,6 +3252,24 @@ class VibrantSheets {
                 });
             });
 
+            const mergeRefs = new Set();
+            if (worksheet.model && Array.isArray(worksheet.model.merges)) {
+                worksheet.model.merges.forEach(ref => mergeRefs.add(ref));
+            }
+            if (worksheet._merges) {
+                if (worksheet._merges instanceof Map) {
+                    Array.from(worksheet._merges.keys()).forEach(ref => mergeRefs.add(ref));
+                } else if (Array.isArray(worksheet._merges)) {
+                    worksheet._merges.forEach(ref => mergeRefs.add(ref));
+                } else {
+                    Object.keys(worksheet._merges).forEach(ref => mergeRefs.add(ref));
+                }
+            }
+
+            sheet.mergedRanges = Array.from(mergeRefs)
+                .map((ref) => this.parseRangeRef(ref))
+                .filter(Boolean);
+
             this.sheets.push(sheet);
         });
 
@@ -2997,6 +3285,7 @@ class VibrantSheets {
 
     // 3. CSV/TSV Text Import
     importFromText(text) {
+        return window.VSIO.importFromText(this, text);
         // Clear existing
         this.clearAllData(false);
 
@@ -3062,6 +3351,7 @@ class VibrantSheets {
     }
 
     setInternalData(rowNum, colNum, value) {
+        return window.VSIO.setInternalData(this, rowNum, colNum, value);
         // Automatically grow if needed (just in case)
         if (rowNum > this.rows) {
             this.createRowElements(this.rows + 1, rowNum);
@@ -3095,6 +3385,7 @@ class VibrantSheets {
     }
 
     detectDelimiter(text) {
+        return window.VSIO.detectDelimiter(this, text);
         const firstLine = text.split('\n')[0] || '';
         const commas = (firstLine.match(/,/g) || []).length;
         const tabs = (firstLine.match(/\t/g) || []).length;
@@ -3106,6 +3397,7 @@ class VibrantSheets {
     }
 
     async saveFile() {
+        return window.VSIO.saveFile(this);
         if (!this.fileHandle) {
             return this.saveFileAs();
         }
@@ -3141,6 +3433,7 @@ class VibrantSheets {
     }
 
     async saveFileAs() {
+        return window.VSIO.saveFileAs(this);
         const defaultName = (document.querySelector('.filename')?.innerText || 'VibrantSheets').trim();
 
         if ('showSaveFilePicker' in window) {
@@ -3193,6 +3486,7 @@ class VibrantSheets {
 
 
     generateVSHTData() {
+        return window.VSIO.generateVSHTData(this);
         return {
             version: "1.0",
             title: document.querySelector('.filename')?.innerText || 'Untitled',
@@ -3205,13 +3499,15 @@ class VibrantSheets {
                 rowHeights: sheet.rowHeights,
                 cellStyles: sheet.cellStyles,
                 cellFormats: sheet.cellFormats,
-                cellFormulas: sheet.cellFormulas
+                cellFormulas: sheet.cellFormulas,
+                mergedRanges: sheet.mergedRanges || []
             })),
             activeSheetIndex: this.activeSheetIndex
         };
     }
 
     getUsedRangeForSheet(sheet) {
+        return window.VSIO.getUsedRangeForSheet(this, sheet);
         let maxRow = 0;
         let maxCol = 0;
         const scan = (key) => {
@@ -3223,10 +3519,17 @@ class VibrantSheets {
         Object.keys(sheet.cellFormulas || {}).forEach(scan);
         Object.keys(sheet.cellStyles || {}).forEach(scan);
         Object.keys(sheet.cellFormats || {}).forEach(scan);
+        (sheet.mergedRanges || []).forEach((range) => {
+            const normalized = this.normalizeMergedRangeEntry(range);
+            if (!normalized) return;
+            maxRow = Math.max(maxRow, normalized.endRow);
+            maxCol = Math.max(maxCol, normalized.endCol);
+        });
         return { maxRow, maxCol };
     }
 
     async generateXLSXBufferExcelJS() {
+        return window.VSIO.generateXLSXBufferExcelJS(this);
         if (typeof ExcelJS === 'undefined') {
             alert('Excel 라이브러리를 불러오지 못했습니다. 네트워크 연결을 확인해 주세요.');
             return null;
@@ -3269,12 +3572,18 @@ class VibrantSheets {
                     }
                 }
             }
+
+            const merges = this.getNormalizedMergedRanges(sheet);
+            merges.forEach((range) => {
+                ws.mergeCells(range.startRow, range.startCol, range.endRow, range.endCol);
+            });
         });
 
         return wb.xlsx.writeBuffer();
     }
 
     generateXLSXBuffer() {
+        return window.VSIO.generateXLSXBuffer(this);
         if (typeof XLSX === 'undefined') {
             alert('Excel 라이브러리를 찾을 수 없습니다.');
             return null;
@@ -3338,6 +3647,7 @@ class VibrantSheets {
     }
 
     generateCSVContent() {
+        return window.VSIO.generateCSVContent(this);
         // Find used range
         let maxRow = 0, maxCol = 0;
         for (const key in this.data) {
@@ -3429,6 +3739,29 @@ class VibrantSheets {
 
         if (Object.keys(style).length > 0) {
             sheet.cellStyles[cellId] = style;
+        }
+
+        if (cell.border) {
+            const toInternal = (side) => {
+                const b = cell.border?.[side];
+                if (!b || !b.style) return null;
+                return {
+                    style: b.style,
+                    color: this.argbToHex(b.color?.argb),
+                    width: 1
+                };
+            };
+            const border = {
+                top: toInternal('top'),
+                right: toInternal('right'),
+                bottom: toInternal('bottom'),
+                left: toInternal('left')
+            };
+            const hasBorder = Object.values(border).some(Boolean);
+            if (hasBorder) {
+                if (!sheet.cellBorders) sheet.cellBorders = {};
+                sheet.cellBorders[cellId] = border;
+            }
         }
     }
 
@@ -3591,6 +3924,8 @@ class VibrantSheets {
         this.cellStyles = {};
         this.cellFormats = {};
         this.cellFormulas = {};
+        this.cellBorders = {};
+        this.mergedRanges = [];
         if (shouldMarkDirty) this.markDirty();
         this.updateItemCount();
         this.refreshFindIfActive();
@@ -3740,6 +4075,7 @@ class VibrantSheets {
         const newStyles = {};
         const newFormats = {};
         const newFormulas = {};
+        const newBorders = {};
 
         // Helper to shift a single coordinate
         const shiftCoord = (coord, t, d) => (coord >= t ? coord + d : coord);
@@ -3816,16 +4152,28 @@ class VibrantSheets {
             }
         }
 
+        for (const key in this.cellBorders) {
+            const { row, colNum } = this.parseCellId(key);
+            let nRow = row;
+            let nColNum = colNum;
+
+            if (type === 'row') {
+                nRow = shiftCoord(row, threshold, delta);
+            } else {
+                nColNum = shiftCoord(colNum, threshold, delta);
+            }
+
+            if (nRow > 0 && nColNum > 0) {
+                const newKey = `${this.numberToCol(nColNum)}${nRow}`;
+                newBorders[newKey] = this.cellBorders[key];
+            }
+        }
+
         this.data = newData;
         this.cellStyles = newStyles;
         this.cellFormats = newFormats;
         this.cellFormulas = newFormulas;
+        this.cellBorders = newBorders;
+        this.shiftMergedRanges(type, threshold, delta);
     }
-}
-
-// Initialize immediately (script is at bottom of body)
-try {
-    window.sheets = new VibrantSheets();
-} catch (err) {
-    console.error('VibrantSheets initialization failed:', err);
 }

@@ -391,7 +391,7 @@ body {
 .selection-overlay {
     position: absolute;
     border: 3px solid var(--accent-color);
-    background-color: transparent;
+    background-color: var(--selection-color);
     pointer-events: none;
     z-index: 21; /* Above fill handle 20 */
     box-sizing: border-box;
@@ -408,14 +408,6 @@ body {
 
 .cell.editing:focus {
     outline: none; /* Already has inset shadow */
-}
-
-.selection-overlay {
-    position: absolute;
-    border: 2px solid var(--accent-color);
-    background-color: var(--selection-color);
-    pointer-events: none;
-    z-index: 15;
 }
 
 /* Range Selection */
