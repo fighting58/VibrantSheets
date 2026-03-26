@@ -8,7 +8,7 @@ VibrantSheets는 Vanilla JavaScript/CSS로 만든 웹 기반 스프레드시트 
 - 스타일링: 굵게/기울임/밑줄/취소선, 텍스트/배경 색, 정렬, 폰트/크기
 - 행/열 작업: 삽입/삭제, 데이터/스타일/포맷 재계산
 - 선택 기능: 헤더 선택/전체 선택/연속 범위 확장
-- 데이터 포맷팅: General/Currency(KRW)/Percentage/Date
+- 데이터 포맷팅: General, Number, Text, Currency(KRW), Percentage, Date (엑셀 완벽 호환)
 - 다중 시트: 추가/삭제/이름 변경/이동 및 시트별 데이터 유지
 - 찾기/바꾸기: 검색/치환/하이라이트/순차 이동
 - 함수 엔진(간단): SUM/CONCAT/LEFT/RIGHT/MID, 참조/순환 참조 감지

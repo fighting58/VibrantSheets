@@ -434,7 +434,10 @@
                         const dateValue = ctx.parseDateFromRaw(rawValue);
 
                         const cell = ws.getCell(r, c);
-                        if (rawValue.trim().startsWith('=')) {
+                        if (format.type === 'text') {
+                            cell.value = rawValue;
+                            cell.numFmt = '@';
+                        } else if (rawValue.trim().startsWith('=')) {
                             const formula = rawValue.trim().slice(1);
                             const result = ctx.formulaEngine
                                 ? ctx.formulaEngine.evaluate(rawValue, ctx.getFormulaContext(), new Set())
@@ -443,7 +446,7 @@
                         } else if (format.type === 'date' && dateValue) {
                             cell.value = dateValue;
                             cell.numFmt = 'yyyy-mm-dd';
-                        } else if (numericValue !== null && format.type !== 'date') {
+                        } else if (numericValue !== null && format.type !== 'date' && format.type !== 'text') {
                             cell.value = numericValue;
                             const numFmt = ctx.getNumFmtFromFormat(format);
                             if (numFmt) cell.numFmt = numFmt;

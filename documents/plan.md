@@ -24,10 +24,10 @@ VibrantSheets는 브라우저에서 동작하는 Excel 스타일 스프레드시
 - 정렬, 폰트, 폰트 크기
 
 ### 2.4 데이터 포맷팅
-- General / Currency(KRW) / Percentage / Date
-- 소수점 자리수 조절
-- raw 값 보존 + 표시값 렌더링 분리
-- 포맷 메타데이터(`cellFormats`) 관리
+- General, Number, Text, Currency(KRW), Percentage, Date 지원
+- 소수점 자리수 조절 (Number, Currency, Percentage 타입 대응)
+- raw 값 보존 + 표시값 렌더링 분리 (Text는 원형 보존)
+- XLSX import/export 시 포맷 타입 및 서식 코드(numFmt) 완벽 매핑
 
 ### 2.5 구조 작업
 - 행/열 삽입/삭제

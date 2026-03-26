@@ -276,7 +276,7 @@ class VibrantSheets {
     }
 
     getDefaultDecimalsByType(type) {
-        if (type === 'currency' || type === 'percentage') return 2;
+        if (type === 'currency' || type === 'percentage' || type === 'number') return 2;
         return null;
     }
 
@@ -288,10 +288,10 @@ class VibrantSheets {
     }
 
     normalizeFormat(format) {
-        const type = ['general', 'currency', 'percentage', 'date'].includes(format?.type) ? format.type : 'general';
+        const type = ['general', 'number', 'currency', 'percentage', 'date', 'text'].includes(format?.type) ? format.type : 'general';
         let decimals = this.normalizeDecimals(format?.decimals);
         if (decimals === null) decimals = this.getDefaultDecimalsByType(type);
-        if (type === 'date') decimals = null;
+        if (type === 'date' || type === 'text') decimals = null;
         return { type, decimals };
     }
 
@@ -384,6 +384,12 @@ class VibrantSheets {
         if (!raw) return '';
 
         const format = this.getCellFormat(cellId);
+        
+        // Text format returns raw string immediately
+        if (format.type === 'text') {
+            return raw;
+        }
+
         const decimals = format.decimals ?? 0;
 
         if (format.type === 'date') {
@@ -409,7 +415,8 @@ class VibrantSheets {
             }).format(numeric * 100) + '%';
         }
 
-        if (format.decimals !== null) {
+        // Handle 'number' or 'general' with decimals
+        if (format.type === 'number' || format.decimals !== null) {
             return new Intl.NumberFormat('ko-KR', {
                 minimumFractionDigits: decimals,
                 maximumFractionDigits: decimals
@@ -3880,8 +3887,11 @@ class VibrantSheets {
         if (format.type === 'date') {
             return 'yyyy-mm-dd';
         }
-        if (format.decimals !== null) {
-            const d = format.decimals;
+        if (format.type === 'text') {
+            return '@';
+        }
+        if (format.type === 'number' || format.decimals !== null) {
+            const d = format.decimals ?? 0;
             return `#,##0${d > 0 ? '.' + '0'.repeat(d) : ''}`;
         }
         return null;
@@ -3892,16 +3902,20 @@ class VibrantSheets {
         let type = 'general';
         let decimals = null;
 
-        if (formatCode.includes('%')) {
+        if (formatCode === '@' || formatCode === 'text') {
+            type = 'text';
+            decimals = null;
+        } else if (formatCode.includes('%')) {
             type = 'percentage';
             decimals = this.extractDecimalPlacesFromFormat(formatCode);
-        } else if (/\b(y|m|d|h|s)+\b/.test(formatCode) || cellType === ExcelJS.ValueType.Date) {
+        } else if (/\b(y|m|d|h|s)+\b/.test(formatCode) || cellType === 4 /* Date */) {
             type = 'date';
             decimals = null;
         } else if (formatCode.includes('[$') || formatCode.includes('₩') || formatCode.includes('$')) {
             type = 'currency';
             decimals = this.extractDecimalPlacesFromFormat(formatCode);
-        } else if (cellType === ExcelJS.ValueType.Number) {
+        } else if (formatCode.includes('#') || formatCode.includes('0') || cellType === 2 /* Number */) {
+            type = 'number';
             decimals = this.extractDecimalPlacesFromFormat(formatCode);
         }
 
