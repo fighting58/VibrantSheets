@@ -387,6 +387,12 @@
                 ctx.createRowElements(ctx.rows + 1, rowNum);
                 ctx.rows = rowNum;
             }
+            if (colNum > ctx.cols) {
+                for (let c = ctx.cols + 1; c <= colNum; c++) {
+                    ctx.colWidths[c - 1] = 100;
+                }
+                ctx.cols = colNum;
+            }
             const cellId = `${ctx.numberToCol(colNum)}${rowNum}`;
             ctx.setRawValue(cellId, value);
         },

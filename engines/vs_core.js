@@ -718,7 +718,7 @@
         for (let j = 0; j < this.cols; j++) {
             const th = document.createElement('th');
             th.className = 'cell header col-header';
-            th.innerText = String.fromCharCode(65 + j);
+            th.innerText = this.numberToCol(j + 1);
             th.dataset.colIndex = j;
             th.addEventListener('mousedown', (e) => this.handleHeaderMouseDown('col', j + 1, e));
             th.addEventListener('mouseover', () => this.handleHeaderMouseOver('col', j + 1));
@@ -3956,6 +3956,13 @@
 
         let pasteEndCol = anchor.colNum + numCols - 1;
         let pasteEndRow = anchor.row + numRows - 1;
+        if (pasteEndCol > this.cols) {
+            for (let cAdd = this.cols + 1; cAdd <= pasteEndCol; cAdd++) {
+                this.colWidths[cAdd - 1] = 100;
+            }
+            this.cols = pasteEndCol;
+            this.refreshGridUI();
+        }
 
         for (let r = 0; r < numRows; r++) {
             for (let c = 0; c < numCols; c++) {
@@ -3969,13 +3976,11 @@
                     this.rows += rowsToAdd;
                 }
 
-                if (targetColNum <= this.cols) {
-                    const cell = this.getCellEl(targetColNum, targetRow);
-                    if (cell) {
-                        const val = rowsData[r][c] || '';
-                        this.setRawValue(cell.dataset.id, val);
-                        this.renderCellValue(cell);
-                    }
+                const cell = this.getCellEl(targetColNum, targetRow);
+                if (cell) {
+                    const val = rowsData[r][c] || '';
+                    this.setRawValue(cell.dataset.id, val);
+                    this.renderCellValue(cell);
                 }
             }
         }
@@ -3989,11 +3994,18 @@
                 const endRow = anchor.row + merge.endRowOffset;
                 pasteEndCol = Math.max(pasteEndCol, endCol);
                 pasteEndRow = Math.max(pasteEndRow, endRow);
-                if (startCol < 1 || startRow < 1 || endCol > this.cols) return;
+                if (startCol < 1 || startRow < 1) return;
                 if (endRow > this.rows) {
                     const rowsToAdd = Math.max(30, endRow - this.rows);
                     this.createRowElements(this.rows + 1, this.rows + rowsToAdd);
                     this.rows += rowsToAdd;
+                }
+                if (endCol > this.cols) {
+                    for (let cAdd = this.cols + 1; cAdd <= endCol; cAdd++) {
+                        this.colWidths[cAdd - 1] = 100;
+                    }
+                    this.cols = endCol;
+                    this.refreshGridUI();
                 }
                 this.mergeRangeSilently({ startCol, startRow, endCol, endRow });
             });
@@ -4213,7 +4225,14 @@
                     this.extendSelectionByKey(colNum, rowNum, colNum, rowNum + 1);
                     return;
                 }
-                if (rowNum < this.rows) nextRow++;
+                if (rowNum < this.rows) {
+                    nextRow++;
+                } else {
+                    const rowsToAdd = 30;
+                    this.createRowElements(this.rows + 1, this.rows + rowsToAdd);
+                    this.rows += rowsToAdd;
+                    nextRow = rowNum + 1;
+                }
                 moved = true;
                 e.preventDefault();
                 break;
@@ -4233,7 +4252,17 @@
                     this.extendSelectionByKey(colNum, rowNum, colNum + 1, rowNum);
                     return;
                 }
-                if (colNum < this.cols) nextCol = colNum + 1;
+                if (colNum < this.cols) {
+                    nextCol = colNum + 1;
+                } else {
+                    const colsToAdd = 10;
+                    for (let c = this.cols + 1; c <= this.cols + colsToAdd; c++) {
+                        this.colWidths[c - 1] = 100;
+                    }
+                    this.cols += colsToAdd;
+                    this.refreshGridUI();
+                    nextCol = colNum + 1;
+                }
                 moved = true;
                 e.preventDefault(); // Stop default browser scroll
                 break;
@@ -4242,7 +4271,17 @@
                 if (e.shiftKey) {
                     if (colNum > 1) nextCol = colNum - 1;
                 } else {
-                    if (colNum < this.cols) nextCol = colNum + 1;
+                    if (colNum < this.cols) {
+                        nextCol = colNum + 1;
+                    } else {
+                        const colsToAdd = 10;
+                        for (let c = this.cols + 1; c <= this.cols + colsToAdd; c++) {
+                            this.colWidths[c - 1] = 100;
+                        }
+                        this.cols += colsToAdd;
+                        this.refreshGridUI();
+                        nextCol = colNum + 1;
+                    }
                 }
                 moved = true;
                 break;
@@ -4251,7 +4290,14 @@
                 if (e.shiftKey) {
                     if (rowNum > 1) nextRow--;
                 } else {
-                    if (rowNum < this.rows) nextRow++;
+                    if (rowNum < this.rows) {
+                        nextRow++;
+                    } else {
+                        const rowsToAdd = 30;
+                        this.createRowElements(this.rows + 1, this.rows + rowsToAdd);
+                        this.rows += rowsToAdd;
+                        nextRow = rowNum + 1;
+                    }
                 }
                 moved = true;
                 break;
@@ -4381,8 +4427,24 @@
         if (!activeCell) return;
         
         const { colNum, row } = this.parseCellId(activeCell.dataset.id);
-        const nextCol = Math.max(1, Math.min(this.cols, colNum + deltaCol));
-        const nextRow = Math.max(1, Math.min(this.rows, row + deltaRow));
+        const desiredCol = colNum + deltaCol;
+        const desiredRow = row + deltaRow;
+
+        if (desiredRow > this.rows) {
+            const rowsToAdd = Math.max(30, desiredRow - this.rows);
+            this.createRowElements(this.rows + 1, this.rows + rowsToAdd);
+            this.rows += rowsToAdd;
+        }
+        if (desiredCol > this.cols) {
+            for (let c = this.cols + 1; c <= desiredCol; c++) {
+                this.colWidths[c - 1] = 100;
+            }
+            this.cols = desiredCol;
+            this.refreshGridUI();
+        }
+
+        const nextCol = Math.max(1, Math.min(this.cols, desiredCol));
+        const nextRow = Math.max(1, Math.min(this.rows, desiredRow));
         
         const nextCell = this.getSelectableCell(nextCol, nextRow);
         if (nextCell) {
