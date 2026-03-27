@@ -1,34 +1,25 @@
-﻿# Progress Update (2026-03-26)
+# Status
 
-## Scope
-This update captures the latest fixes around Excel round-trip reliability, print behavior, and format preservation.
+## 기준 일자
+- 2026-03-28
 
-## Completed
-- Fixed malformed currency number format in XLSX export that caused Excel repair (`xl/styles.xml`).
-- Preserved merged ranges more safely during import/export flow.
-- Preserved strikethrough during Excel save/load.
-- Preserved border styles in save/load and improved thin-border rendering behavior on merged boundaries.
-- Improved print workflow:
-  - print-area oriented flow
-  - safer preview generation
-  - reduced editor-only artifact leakage into print output
-- Added/expanded print controls in ribbon and print modal behavior.
+## 현재 단계
+- Phase 14 진행 중: 이미지 삽입
 
-## Currency Preservation (New)
-- Added currency-aware format persistence for `KRW` and `USD`.
-- Import now detects currency from Excel format code (`$` vs `₩`).
-- Render/export now uses stored currency, not forced KRW.
+## 최근 반영 사항
+- 비브란트 기본 셀 크기 동기화(엑셀 기본값 기준: 64/22)
+- 엑셀 저장/불러오기 시 이미지 크기 보존(EXT 기반)
+- 인쇄 시 브라우저가 강제로 1페이지로 축소하던 문제를 커스텀 인쇄 페이지 생성 방식으로 보정
+- 인쇄 전용 DOM만 노출하여 1페이지가 비는 현상 제거
+- 열 자동 확장(붙여넣기/이동/입력 경로) 보강
+- 컬럼 헤더 `AA`, `AB` 표기 정상화
+- XLSX 라운드트립에서 통화 포맷(KRW/USD) 보존 개선
 
-## Validation Checklist
-1. Import Excel file with USD/KRW mixed currency cells.
-2. Save as XLSX from VibrantSheets.
-3. Open saved copy in Excel:
-- no repair dialog
-- merged ranges remain intact
-- currency unit matches source (USD remains USD, KRW remains KRW)
-- border/background/strike styles remain intact
+## 진행 중
+- Phase 14 이미지 삽입 기능 고도화/호환성 보정
+- Phase 13 정책 확정(자동 저장/복구 범위)
 
-## Known Follow-ups
-- Expand currency support beyond KRW/USD if required (EUR/JPY etc.).
-- Add explicit UI control for currency unit selection per cell/range.
-- Normalize legacy fallback exporter path to use the same format builder API everywhere.
+## 다음 우선순위
+1. 회귀 테스트 체크리스트 확정 및 수행
+2. Phase 14 잔여 품질 개선(엑셀 호환성)
+3. Phase 13 구현 착수

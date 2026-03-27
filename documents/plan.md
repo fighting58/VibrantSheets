@@ -1,10 +1,10 @@
-# VibrantSheets 개발 기획서
+﻿# VibrantSheets 개발 기획서
 
 ## 1. 프로젝트 개요
-VibrantSheets는 브라우저에서 동작하는 Excel 스타일 스프레드시트 앱입니다.  
+VibrantSheets는 브라우저에서 동작하는 Excel 스타일 스프레드시트 앱입니다.
 목표는 빠른 편집 성능, 직관적인 상호작용, 실사용 가능한 파일 호환성입니다.
 
-## 2. 현재 구현 범위 (2026-03-25 기준)
+## 2. 현재 구현 범위 (2026-03-27 기준)
 
 ### 2.1 편집/선택 엔진
 - Ready / Edit / Enter 모드
@@ -22,16 +22,19 @@ VibrantSheets는 브라우저에서 동작하는 Excel 스타일 스프레드시
 - Bold / Italic / Underline / Strikethrough
 - 텍스트색, 배경색
 - 정렬, 폰트, 폰트 크기
+- 테두리: 9종 아이콘, 내부 가로/세로 포함, 병합 경계 우선순위 처리
 
 ### 2.4 데이터 포맷팅
-- General, Number, Text, Currency(KRW), Percentage, Date 지원
+- General, Number, Text, Currency(KRW/USD), Percentage, Date 지원
 - 소수점 자리수 조절 (Number, Currency, Percentage 타입 대응)
 - raw 값 보존 + 표시값 렌더링 분리 (Text는 원형 보존)
-- XLSX import/export 시 포맷 타입 및 서식 코드(numFmt) 완벽 매핑
+- XLSX import/export 시 포맷 타입 및 서식 코드(numFmt) 매핑
 
 ### 2.5 구조 작업
 - 행/열 삽입/삭제
 - 데이터/스타일/포맷 키 시프트 처리
+- 행 자동 확장 + 열 자동 확장(붙여넣기/이동/입력)
+- 컬럼 헤더 `AA`, `AB` 이후 정상 표시
 
 ### 2.6 다중 시트
 - 시트 추가/삭제/이름 변경/이동
@@ -54,37 +57,78 @@ VibrantSheets는 브라우저에서 동작하는 Excel 스타일 스프레드시
 - `.vsht`: 데이터/스타일/포맷/레이아웃 보존
 - `.xlsx`: ExcelJS 기반 import/export + 스타일 보존
 - `.csv`: 활성 시트만 저장 (확인 모달)
+- 병합/strikethrough/통화(KRW/USD) 라운드트립 보정
+
+### 2.10 인쇄 (Phase 12)
+- 인쇄 모달/프리뷰
+- 인쇄 영역 기반 출력 흐름
+- 페이지 방향/헤더·푸터 슬롯 제어
+- 페이지 브레이크 프리뷰
+- 커스텀 인쇄 페이지 생성으로 브라우저 강제 축소 보정
 
 ## 3. 아키텍처 요약
-- 단일 엔트리: `app.js` (`VibrantSheets` 클래스)
-- 함수 엔진: `formula_engine.js`
-- UI: `index.html` (리본/수식바/그리드/상태바)
+- 엔트리: `engines/bootstrap.js`
+- 핵심 UI/그리드: `engines/vs_core.js`
+- 파일 I/O: `engines/vs_io.js`
+- 찾기/바꾸기: `engines/vs_find.js`
+- 수식 엔진: `engines/formula_engine.js`
 - 스타일: `style.css`
 
-## 4. 다음 단계
+## 4. 다음 단계 (Phase 14부터 시작)
 
-### 2.10 테두리 엔진 및 안정성
-- 9종 아이콘 기반 테두리 배치 제어 (내부 가로/세로 포함)
-- 인접 셀 동기화(Mirror Rendering) 시스템
-- 행/열 다중 삭제 시 데이터 잔류 버그 수정 (shiftCoord 필터링)
-- IME(한글) 첫 글자 소실 해결 (Select All 전략)
+### Phase 14: 이미지 삽입 상세 계획
 
-## 3. 아키텍처 요약
-- 단일 엔트리: `app.js` (`VibrantSheets` 클래스)
-- 함수 엔진: `formula_engine.js`
-- 스타일: `style.css` (컴팩트 리본 디자인 반영)
+#### 4.1 요구사항 정리
+- 로컬 파일 삽입 및 클립보드 이미지 붙여넣기
+- 셀 위 오브젝트(absolute) 배치
+- 이동/리사이즈/삭제, 앞뒤 순서(Z-order)
+- 저장/불러오기 지원(VSHT 우선)
+- 인쇄/미리보기 렌더링 반영
 
-## 4. 다음 단계
+#### 4.2 데이터 모델
+- `sheet.images[]`
+- `id`, `src`(base64 or object URL), `x`, `y`, `w`, `h`, `rotation`, `z`, `anchor`, `lock`
+- 좌표계: 그리드 픽셀 기준(스크롤/줌과 일치)
 
-### Phase 12: Persistence & Recovery
-- `localStorage` 기반 자동 데이터 저장
+#### 4.3 UI/UX
+- 리본: `Insert Image` 버튼
+- 선택 시 8방향 리사이즈 핸들
+- 컨텍스트 메뉴: 앞으로/뒤로, 삭제, 원본크기
+
+#### 4.4 렌더링
+- 그리드 오버레이 레이어에 이미지 렌더
+- 스크롤/줌 변화에 따른 위치 보정
+- 선택 상태/핸들 표시
+
+#### 4.5 이벤트
+- 클릭 선택, 셀 선택 해제
+- 드래그 이동, 핸들 드래그 리사이즈
+- Delete 키 삭제
+
+#### 4.6 저장/불러오기
+- VSHT: 이미지 메타 + base64 저장
+- XLSX: 1차는 제외/스킵(로깅 또는 안내)
+
+#### 4.7 인쇄 대응
+- 인쇄용 DOM 생성 시 이미지 포함
+- 페이지 분할 시 클리핑 적용
+
+#### 4.8 테스트 체크리스트
+- 삽입 → 이동/리사이즈 → 저장 → 재열기
+- 스크롤/줌 변화 시 위치 유지
+- 인쇄 미리보기와 출력 위치 일치
+
+### Phase 13: Persistence & Recovery (대기)
+- `localStorage` 기반 자동 저장
 - 세션 복구 및 최근 파일 목록 유지
 - 사용자 정의 리스트 정보 유지
-- 멀티 시트 저장/불러오기(XLSX) 시 스타일 유지
-- CSV 저장 시 활성 시트만 저장 + 확인 모달
-- 수식 범위/순환 참조 동작
-- 수식 엔진 단위 테스트
-- 수식 엔진 통합 테스트
+
+## 5. 완료된 단계
+
+### Phase 12: 인쇄 품질 고도화 (완료)
+- 프리뷰/페이지 분할 정합성 개선
+- 열너비/행높이 체감 일치도 개선
+- 인쇄 옵션 제약 및 UX 정리
 
 ## 6. 함수 동작 규격(간단 버전)
 - 입력 타입: 숫자 문자열은 자동 변환, 비숫자는 문자열로 유지

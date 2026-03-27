@@ -29,7 +29,7 @@
 }
 
 body {
-    font-family: 'Inter', sans-serif;
+    font-family: 'Malgun Gothic', 'Segoe UI', sans-serif;
     background-color: var(--bg-color);
     color: var(--text-primary);
     height: 100vh;
@@ -395,6 +395,99 @@ body {
     color: var(--grid-text);
 }
 
+.image-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 12;
+}
+
+.sheet-image {
+    position: absolute;
+    pointer-events: auto;
+    box-sizing: border-box;
+}
+
+.sheet-image.selected {
+    outline: 1px solid var(--accent-color);
+    outline-offset: 0;
+    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.sheet-image.locked {
+    cursor: not-allowed;
+    border-style: dashed;
+    opacity: 0.95;
+}
+
+.sheet-image img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    user-select: none;
+    pointer-events: none;
+}
+
+.image-handle {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    background: #fff;
+    border: 1px solid var(--accent-color);
+    border-radius: 2px;
+    display: none;
+    box-sizing: border-box;
+}
+
+.sheet-image.selected .image-handle {
+    display: block;
+}
+
+.sheet-image.locked .image-handle {
+    display: none;
+}
+
+.image-handle[data-handle="nw"] { top: -5px; left: -5px; cursor: nwse-resize; }
+.image-handle[data-handle="ne"] { top: -5px; right: -5px; cursor: nesw-resize; }
+.image-handle[data-handle="sw"] { bottom: -5px; left: -5px; cursor: nesw-resize; }
+.image-handle[data-handle="se"] { bottom: -5px; right: -5px; cursor: nwse-resize; }
+
+.image-context-menu {
+    position: fixed;
+    background: #0f172a;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 6px;
+    display: none;
+    z-index: 3000;
+    min-width: 160px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+}
+
+.image-context-menu button {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    text-align: left;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.image-context-menu button:hover {
+    background: rgba(56, 189, 248, 0.12);
+}
+
+.image-context-menu .menu-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: 6px 4px;
+}
+
 .spreadsheet-table {
     border-collapse: collapse;
     table-layout: fixed;
@@ -403,9 +496,9 @@ body {
 }
 
 .cell {
-    border: 1px solid var(--grid-line);
+    border: none;
     padding: 0 4px;
-    font-size: 0.85rem;
+    font-size: 11pt;
     overflow: hidden;
     white-space: pre-wrap;
     text-overflow: ellipsis;
@@ -414,6 +507,7 @@ body {
     display: table-cell;
     vertical-align: middle;
     color: var(--grid-text);
+    box-shadow: inset -1px -1px 0 var(--grid-line);
 }
 
 .cell:focus {
@@ -834,10 +928,56 @@ body {
 .print-preview-sheet .preview-cell.selected {
     background: rgba(56, 189, 248, 0.18);
 }
+
+.vs-print-pages {
+    display: none;
+}
+
+.vs-print-page {
+    display: block;
+    page-break-after: always;
+    break-after: page;
+}
+
+.vs-print-page:last-child {
+    page-break-after: auto;
+    break-after: auto;
+}
+
+.vs-print-page-viewport {
+    position: relative;
+    overflow: hidden;
+}
+
+.vs-print-page-scale {
+    position: relative;
+}
+
+.vs-print-page-clone {
+    position: absolute;
+    left: 0;
+    top: 0;
+}
+
+.vs-print-image-layer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+}
+
+.vs-print-image-layer img {
+    position: absolute;
+    display: block;
+}
+
 @media print {
     body {
         background: #fff !important;
         color: #000 !important;
+    }
+    body.custom-print-active > :not(.vs-print-pages) {
+        display: none !important;
     }
     .title-bar,
     .ribbon,
@@ -850,6 +990,12 @@ body {
     #grid-container {
         overflow: visible !important;
         height: auto !important;
+    }
+    body.custom-print-active #grid-container {
+        display: none !important;
+    }
+    body.custom-print-active .vs-print-pages {
+        display: block !important;
     }
     .spreadsheet-table {
         width: 0 !important;

@@ -1,4 +1,4 @@
-/* File IO module for VibrantSheets */
+﻿/* File IO module for VibrantSheets */
 (() => {
     const VSIO = {
         async confirmCsvSingleSheet(ctx) {
@@ -104,8 +104,10 @@
                     cellFormulas: sheet.cellFormulas || {},
                     cellBorders: sheet.cellBorders || {},
                     mergedRanges: sheet.mergedRanges || [],
-                    colWidths: sheet.colWidths || new Array(ctx.baseCols).fill(100),
-                    rowHeights: sheet.rowHeights || new Array(ctx.baseRows + 1).fill(25)
+                    images: sheet.images || [],
+                    printSettings: sheet.printSettings || ctx.defaultPrintSettings(),
+                    colWidths: sheet.colWidths || new Array(ctx.baseCols).fill(ctx.baseColWidth),
+                    rowHeights: sheet.rowHeights || new Array(ctx.baseRows + 1).fill(ctx.baseRowHeight)
                 }));
                 ctx.activeSheetIndex = Math.min(Math.max(doc.activeSheetIndex || 0, 0), ctx.sheets.length - 1);
             } else {
@@ -117,11 +119,18 @@
                 ctx.cellFormulas = doc.cellFormulas || {};
                 ctx.cellBorders = doc.cellBorders || {};
                 ctx.mergedRanges = doc.mergedRanges || [];
+                ctx.activeSheet.images = doc.images || [];
+                if (!ctx.activeSheet.printSettings) {
+                    ctx.activeSheet.printSettings = ctx.defaultPrintSettings();
+                }
             }
 
             ctx.refreshGridUI();
             ctx.renderSheetTabs();
             ctx.updateItemCount();
+            if (typeof ctx.normalizeDefaultDimensions === 'function') {
+                ctx.normalizeDefaultDimensions();
+            }
             ctx.markClean();
         },
 
@@ -158,6 +167,70 @@
                 return String(value);
             };
 
+            const emuToPx = (v) => Math.round(Number(v || 0) / 9525);
+            const normalizeOffset = (v) => {
+                if (v === null || v === undefined) return 0;
+                const n = Number(v) || 0;
+                return n > 10000 ? emuToPx(n) : Math.round(n);
+            };
+            const normalizeIndex = (v) => {
+                const n = Number(v);
+                if (!Number.isFinite(n)) return 1;
+                if (n <= 0) return 1;
+                return Math.round(n);
+            };
+            const getAnchor = (pt) => {
+                if (!pt) return { col: 1, row: 1, offsetX: 0, offsetY: 0 };
+                let col = pt.col !== undefined ? pt.col : (pt.nativeCol !== undefined ? pt.nativeCol + 1 : 1);
+                let row = pt.row !== undefined ? pt.row : (pt.nativeRow !== undefined ? pt.nativeRow + 1 : 1);
+                col = normalizeIndex(col);
+                row = normalizeIndex(row);
+                const offsetX = normalizeOffset(pt.offsetX ?? (pt.offset ? pt.offset.x : undefined) ?? pt.nativeColOff);
+                const offsetY = normalizeOffset(pt.offsetY ?? (pt.offset ? pt.offset.y : undefined) ?? pt.nativeRowOff);
+                return { col, row, offsetX, offsetY };
+            };
+            const sumColWidths = (colWidths, col) => {
+                let sum = 0;
+                for (let i = 1; i < col; i++) sum += colWidths[i - 1] || ctx.baseColWidth;
+                return sum;
+            };
+            const sumRowHeights = (rowHeights, row) => {
+                let sum = 0;
+                for (let i = 1; i < row; i++) sum += rowHeights[i] || ctx.baseRowHeight;
+                return sum;
+            };
+            const rangeToPixels = (range, sheet) => {
+                if (!range || !sheet) return null;
+                const headerRowHeight = sheet.rowHeights?.[1] || ctx.baseRowHeight;
+                const tl = getAnchor(range.tl || range);
+                const br = getAnchor(range.br || range);
+                const startX = ctx.rowHeaderWidth + sumColWidths(sheet.colWidths, tl.col) + tl.offsetX;
+                const startY = headerRowHeight + sumRowHeights(sheet.rowHeights, tl.row) + tl.offsetY;
+                let width = 0;
+                let height = 0;
+                if (range.ext) {
+                    const w = range.ext.width ?? range.ext.cx;
+                    const h = range.ext.height ?? range.ext.cy;
+                    width = normalizeOffset(w);
+                    height = normalizeOffset(h);
+                } else if (range.br || (range.tl && range.br)) {
+                    const endX = ctx.rowHeaderWidth + sumColWidths(sheet.colWidths, br.col) + br.offsetX;
+                    const endY = headerRowHeight + sumRowHeights(sheet.rowHeights, br.row) + br.offsetY;
+                    width = Math.max(1, Math.round(endX - startX));
+                    height = Math.max(1, Math.round(endY - startY));
+                } else {
+                    width = 1;
+                    height = 1;
+                }
+                return { x: Math.round(startX), y: Math.round(startY), w: Math.max(1, Math.round(width)), h: Math.max(1, Math.round(height)) };
+            };
+            const bufferToBase64 = (buffer) => {
+                const bytes = new Uint8Array(buffer);
+                let binary = '';
+                for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+                return btoa(binary);
+            };
+
             ctx.sheets = [];
             workbook.eachSheet((worksheet, sheetIndex) => {
                 const name = worksheet.name || `Sheet${sheetIndex}`;
@@ -165,21 +238,21 @@
 
                 sheet.rows = Math.max(ctx.baseRows, worksheet.rowCount || 0);
                 sheet.cols = Math.max(ctx.baseCols, worksheet.columnCount || 0);
-                sheet.colWidths = new Array(sheet.cols).fill(100);
-                sheet.rowHeights = new Array(sheet.rows + 1).fill(25);
+                sheet.colWidths = new Array(sheet.cols).fill(ctx.baseColWidth);
+                sheet.rowHeights = new Array(sheet.rows + 1).fill(ctx.baseRowHeight);
 
                 // Column widths / row heights from Excel (approx px conversion)
                 for (let c = 1; c <= sheet.cols; c++) {
                     const col = worksheet.getColumn(c);
                     if (col && col.width) {
                         // Excel width is roughly in character units; convert to px.
-                        sheet.colWidths[c - 1] = Math.max(30, Math.round(col.width * 7 + 10));
+                        sheet.colWidths[c - 1] = Math.max(30, Math.round(col.width * 7.105263 + 2.094));
                     }
                 }
                 for (let r = 1; r <= sheet.rows; r++) {
                     const row = worksheet.getRow(r);
                     if (row && row.height) {
-                        sheet.rowHeights[r] = Math.max(15, Math.round(row.height));
+                        sheet.rowHeights[r] = Math.max(15, Math.round(row.height / 0.75));
                     }
                 }
 
@@ -292,19 +365,57 @@
                 });
                 if (maxMergeRow > sheet.rows) {
                     for (let r = sheet.rows + 1; r <= maxMergeRow; r++) {
-                        sheet.rowHeights[r] = 25;
+                        sheet.rowHeights[r] = ctx.baseRowHeight;
                     }
                     sheet.rows = maxMergeRow;
                 }
                 if (maxMergeCol > sheet.cols) {
                     for (let c = sheet.cols + 1; c <= maxMergeCol; c++) {
-                        sheet.colWidths[c - 1] = 100;
+                        sheet.colWidths[c - 1] = ctx.baseColWidth;
                     }
                     sheet.cols = maxMergeCol;
                 }
 
                 if (sheet.printSettings == null) {
                     sheet.printSettings = ctx.defaultPrintSettings();
+                }
+
+                // Import images from ExcelJS worksheet
+                if (typeof worksheet.getImages === 'function') {
+                    const imageEntries = worksheet.getImages() || [];
+                    if (imageEntries.length) {
+                        sheet.images = [];
+                        imageEntries.forEach((entry) => {
+                            const info = workbook.getImage(entry.imageId);
+                            if (!info) return;
+                            const ext = String(info.extension || 'png').toLowerCase();
+                            let src = '';
+                            if (info.base64) {
+                                src = `data:image/${ext};base64,${info.base64}`;
+                            } else if (info.buffer) {
+                                src = `data:image/${ext};base64,${bufferToBase64(info.buffer)}`;
+                            }
+                            if (!src) return;
+                            const range = entry.range || entry;
+                            const px = rangeToPixels(range, sheet);
+                            if (!px) return;
+                            const img = {
+                                id: `img_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+                                src,
+                                x: px.x,
+                                y: px.y,
+                                w: px.w,
+                                h: px.h,
+                                name: info.name || `image.${ext}`,
+                                z: sheet.images.length,
+                                locked: false
+                            };
+                            if (typeof ctx.calcImageAnchorFromPixels === 'function') {
+                                img.anchor = ctx.calcImageAnchorFromPixels(img, sheet);
+                            }
+                            sheet.images.push(img);
+                        });
+                    }
                 }
 
                 ctx.sheets.push(sheet);
@@ -389,7 +500,7 @@
             }
             if (colNum > ctx.cols) {
                 for (let c = ctx.cols + 1; c <= colNum; c++) {
-                    ctx.colWidths[c - 1] = 100;
+                    ctx.colWidths[c - 1] = ctx.baseColWidth;
                 }
                 ctx.cols = colNum;
             }
@@ -508,6 +619,7 @@
                     cellFormulas: sheet.cellFormulas,
                     cellBorders: sheet.cellBorders || {},
                     mergedRanges: sheet.mergedRanges || [],
+                    images: sheet.images || [],
                     printSettings: sheet.printSettings || ctx.defaultPrintSettings()
                 })),
                 activeSheetIndex: ctx.activeSheetIndex
@@ -542,6 +654,10 @@
                 return null;
             }
 
+            if (typeof ctx.updateAllImageAnchors === 'function') {
+                ctx.updateAllImageAnchors();
+            }
+
             const wb = new ExcelJS.Workbook();
             ctx.sheets.forEach((sheet, index) => {
                 const ws = wb.addWorksheet(sheet.name || `Sheet${index + 1}`);
@@ -549,7 +665,65 @@
                     // Keep worksheet descent metadata in a safe Excel-compatible range.
                     ws.properties.dyDescent = 0.25;
                 }
-                const { maxRow, maxCol } = VSIO.getUsedRangeForSheet(ctx, sheet);
+                let { maxRow, maxCol } = VSIO.getUsedRangeForSheet(ctx, sheet);
+
+                const rowHeaderWidth = 40;
+                const headerRowHeight = sheet.rowHeights?.[1] || ctx.baseRowHeight;
+                const colWidths = sheet.colWidths || [];
+                const rowHeights = sheet.rowHeights || [];
+                const posFromPixels = (x, y) => {
+                    const adjX = Math.max(0, x - rowHeaderWidth);
+                    const adjY = Math.max(0, y - headerRowHeight);
+
+                    let col = 1;
+                    let xRemain = adjX;
+                    for (let i = 0; i < Math.max(colWidths.length, maxCol); i++) {
+                        const w = colWidths[i] || ctx.baseColWidth;
+                        if (xRemain < w) { col = i + 1; break; }
+                        xRemain -= w;
+                        col = i + 2;
+                    }
+
+                    let row = 1;
+                    let yRemain = adjY;
+                    for (let i = 1; i < Math.max(rowHeights.length, maxRow + 1); i++) {
+                        const h = rowHeights[i] || ctx.baseRowHeight;
+                        if (yRemain < h) { row = i; break; }
+                        yRemain -= h;
+                        row = i + 1;
+                    }
+
+                    return { col, row, offsetX: Math.max(0, Math.round(xRemain)), offsetY: Math.max(0, Math.round(yRemain)) };
+                };
+
+                const imagesForRange = sheet.images || [];
+                imagesForRange.forEach((img) => {
+                    if (!img) return;
+                    if (img.anchor && img.anchor.startCell) {
+                        const parsed = ctx.parseCellId(img.anchor.startCell);
+                        maxCol = Math.max(maxCol, parsed.colNum);
+                        maxRow = Math.max(maxRow, parsed.row);
+                        return;
+                    }
+                    const end = posFromPixels((Number(img.x) || 0) + (Number(img.w) || 0), (Number(img.y) || 0) + (Number(img.h) || 0));
+                    maxCol = Math.max(maxCol, end.col);
+                    maxRow = Math.max(maxRow, end.row);
+                });
+
+                // Apply column widths / row heights (px -> Excel units)
+                for (let c = 1; c <= maxCol; c++) {
+                    const px = colWidths[c - 1] || ctx.baseColWidth;
+                    // Calibrated linear mapping (px -> Excel width)
+                    // Fit using measured pairs: 59->7.38, 73->9.38, 329->45.38
+                    const width = Math.max(3, Math.round((px * 0.1407407 - 0.9247 + 0.63) * 100) / 100);
+                    ws.getColumn(c).width = width;
+                }
+                for (let r = 1; r <= maxRow; r++) {
+                    const px = rowHeights[r] || ctx.baseRowHeight;
+                    // Excel row height uses points. 1pt ≈1.333px.
+                    const height = Math.max(10, Math.round(px * 0.75));
+                    ws.getRow(r).height = height;
+                }
 
                 for (let r = 1; r <= maxRow; r++) {
                     for (let c = 1; c <= maxCol; c++) {
@@ -627,6 +801,37 @@
                 merges.forEach((range) => {
                     ws.mergeCells(range.startRow, range.startCol, range.endRow, range.endCol);
                 });
+
+                // Images (export from VSHT image metadata)
+                const images = sheet.images || [];
+                if (images.length) {
+                    images.forEach((img) => {
+                        if (!img || !img.src) return;
+                        const match = String(img.src).match(/^data:image\/([^;]+);/i);
+                        const ext = match ? match[1].toLowerCase() : 'png';
+                        const imageId = wb.addImage({ base64: img.src, extension: ext });
+                        if (img.anchor && img.anchor.startCell) {
+                            const start = ctx.parseCellId(img.anchor.startCell);
+                            const offsetStart = img.anchor.offsetStart || { x: 0, y: 0 };
+                            ws.addImage(imageId, {
+                                tl: { col: Math.max(0, start.colNum - 1), row: Math.max(0, start.row - 1), offsetX: offsetStart.x || 0, offsetY: offsetStart.y || 0 },
+                                ext: {
+                                    width: Math.max(1, Math.round(img.w || 1)),
+                                    height: Math.max(1, Math.round(img.h || 1))
+                                }
+                            });
+                        } else {
+                            const pos = posFromPixels(Number(img.x) || 0, Number(img.y) || 0);
+                            ws.addImage(imageId, {
+                                tl: { col: Math.max(0, pos.col - 1), row: Math.max(0, pos.row - 1), offsetX: pos.offsetX, offsetY: pos.offsetY },
+                                ext: {
+                                    width: Math.max(1, Math.round(img.w || 1)),
+                                    height: Math.max(1, Math.round(img.h || 1))
+                                }
+                            });
+                        }
+                    });
+                }
             });
 
             return wb.xlsx.writeBuffer();

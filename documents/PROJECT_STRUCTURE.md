@@ -17,8 +17,8 @@ VibrantSheets/
     PROCESS.md
     PROJECT_STRUCTURE.md
     STATUS.md
+    REGRESSION_CHECKLIST.md
     TROUBLESHOOTING.md
-    TROUBLESHOOTING_2026-03-26.md
   index.html
   style.css
   README.md
@@ -31,6 +31,7 @@ VibrantSheets/
 - 그리드 렌더링/선택/편집/IME 처리
 - 병합/테두리/서식 상태 관리
 - 인쇄 모달/프리뷰/인쇄영역/페이지브레이크 프리뷰
+- 커스텀 인쇄 페이지 생성(페이지별 테이블 클론)
 - 행/열 확장 및 키보드 내비게이션
 
 ### `engines/vs_find.js`
@@ -75,3 +76,5 @@ VibrantSheets/
 - 컬럼 헤더는 `A..Z` 이후 `AA, AB...`를 지원합니다.
 - 열/행은 입력/붙여넣기/키보드 이동 중 필요 시 자동 확장됩니다.
 - 통화 포맷은 KRW/USD를 구분해 import/export 라운드트립을 유지합니다.
+- 인쇄는 페이지별 DOM을 만들어 출력하며, `style.css`의 print 전용 규칙을 함께 사용합니다.
+- 기본 셀 크기는 엑셀 기본값에 맞춰 64/22(px 기준)로 동기화됩니다.

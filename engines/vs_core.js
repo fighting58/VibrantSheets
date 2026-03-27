@@ -2,6 +2,8 @@
     constructor() {
         this.baseRows = 50;
         this.baseCols = 26; // A to Z
+        this.baseColWidth = 64;
+        this.baseRowHeight = 22;
         this.selectedCell = null;
         this.isDirty = false;
         this.fileHandle = null; // Current working file handle
@@ -38,6 +40,16 @@
         this.resizeIndex = -1;
         this.resizeStartPos = 0;
         this.resizeStartSize = 0;
+        
+        // Image insertion state
+        this.imageLayer = null;
+        this.activeImageId = null;
+        this.isDraggingImage = false;
+        this.isResizingImage = false;
+        this.imageDragState = null;
+        this.imageContextMenu = null;
+        this.imageContextTargetId = null;
+        this.rowHeaderWidth = 40;
 
         this.sheets = [this.createSheet('Sheet1')];
         this.activeSheetIndex = 0;
@@ -171,9 +183,10 @@
             cellFormulas: {},
             cellBorders: {},
             mergedRanges: [],
+            images: [],
             printSettings: this.defaultPrintSettings(),
-            colWidths: new Array(this.baseCols).fill(100),
-            rowHeights: new Array(this.baseRows + 1).fill(25)
+            colWidths: new Array(this.baseCols).fill(this.baseColWidth),
+            rowHeights: new Array(this.baseRows + 1).fill(this.baseRowHeight)
         };
     }
 
@@ -219,7 +232,9 @@
         this.resizeGuide = this.createOverlay('resize-guide');
         this.fillPreview = this.createOverlay('fill-preview');
         this.pageBreakOverlay = this.createOverlay('page-break-overlay');
+        this.ensurePrintPagesContainer();
 
+        this.normalizeDefaultDimensions();
         this.renderGrid();
         this.renderSheetTabs();
         this.setupEventListeners();
@@ -237,6 +252,111 @@
             div.innerHTML = '<span class="fill-preview-label">?쒕━利?梨꾩슦湲?/span><span class="fill-preview-hint">Alt: 媛?蹂듭궗</span>';
         }
         return div;
+    }
+
+    ensurePrintPagesContainer() {
+        let container = document.getElementById('vs-print-pages');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'vs-print-pages';
+            container.className = 'vs-print-pages';
+            document.body.appendChild(container);
+        }
+        this.printPagesContainer = container;
+        return container;
+    }
+
+    ensureImageLayer() {
+        if (!this.container) return null;
+        let layer = this.container.querySelector('.image-layer');
+        if (!layer) {
+            layer = document.createElement('div');
+            layer.className = 'image-layer';
+            this.container.appendChild(layer);
+        }
+        this.imageLayer = layer;
+        return layer;
+    }
+
+    normalizeDefaultDimensions() {
+        const isOldDefaultCols = (cols) => cols.every(w => w === 100 || w == null || w === 62);
+        const isOldDefaultRows = (rows) => rows.slice(1).every(h => h === 25 || h == null || h === 23);
+        this.sheets.forEach((sheet) => {
+            if (sheet.colWidths && isOldDefaultCols(sheet.colWidths)) {
+                sheet.colWidths = new Array(sheet.cols).fill(this.baseColWidth);
+            }
+            if (sheet.rowHeights && isOldDefaultRows(sheet.rowHeights)) {
+                sheet.rowHeights = new Array(sheet.rows + 1).fill(this.baseRowHeight);
+            }
+        });
+    }
+
+    calcImageAnchorFromPixels(img, sheet = this.activeSheet) {
+        if (!img || !sheet) return null;
+        const colWidths = sheet.colWidths || [];
+        const rowHeights = sheet.rowHeights || [];
+        const headerRowHeight = rowHeights?.[1] || this.baseRowHeight;
+        const start = this.calcCellFromOffset(img.x || 0, img.y || 0, colWidths, rowHeights, headerRowHeight);
+        const end = this.calcCellFromOffset((img.x || 0) + (img.w || 0), (img.y || 0) + (img.h || 0), colWidths, rowHeights, headerRowHeight);
+        if (!start || !end) return null;
+        return {
+            startCell: `${this.numberToCol(start.col)}${start.row}`,
+            endCell: `${this.numberToCol(end.col)}${end.row}`,
+            offsetStart: { x: start.offsetX, y: start.offsetY },
+            offsetEnd: { x: end.offsetX, y: end.offsetY }
+        };
+    }
+
+    calcCellFromOffset(x, y, colWidths, rowHeights, headerRowHeight) {
+        const adjX = Math.max(0, x - this.rowHeaderWidth);
+        const adjY = Math.max(0, y - headerRowHeight);
+
+        let col = 1;
+        let xRemain = adjX;
+        for (let i = 0; i < colWidths.length; i++) {
+            const w = colWidths[i] || this.baseColWidth;
+            if (xRemain < w) { col = i + 1; break; }
+            xRemain -= w;
+            col = i + 2;
+        }
+
+        let row = 1;
+        let yRemain = adjY;
+        for (let i = 1; i < rowHeights.length; i++) {
+            const h = rowHeights[i] || this.baseRowHeight;
+            if (yRemain < h) { row = i; break; }
+            yRemain -= h;
+            row = i + 1;
+        }
+
+        return { col, row, offsetX: Math.max(0, Math.round(xRemain)), offsetY: Math.max(0, Math.round(yRemain)) };
+    }
+
+    updateImageAnchorsForSheet(sheet) {
+        if (!sheet || !Array.isArray(sheet.images)) return;
+        sheet.images.forEach((img) => {
+            img.anchor = this.calcImageAnchorFromPixels(img, sheet);
+        });
+    }
+
+    updateAllImageAnchors() {
+        this.sheets.forEach((sheet) => this.updateImageAnchorsForSheet(sheet));
+    }
+
+    getImageById(id) {
+        const images = this.activeSheet.images || [];
+        return images.find(img => img.id === id);
+    }
+
+    selectImage(id) {
+        this.activeImageId = id;
+        this.renderImages();
+    }
+
+    clearImageSelection() {
+        if (!this.activeImageId) return;
+        this.activeImageId = null;
+        this.renderImages();
     }
 
     // ??? Utility ???????????????????????????????????????????
@@ -733,11 +853,13 @@
         
         this.container.appendChild(table);
         this.applyMergesToGrid();
+        this.ensureImageLayer();
+        this.renderImages();
     }
 
     createRowElements(startRow, endRow) {
         for (let i = startRow; i <= endRow; i++) {
-            if (!this.rowHeights[i]) this.rowHeights[i] = 25;
+            if (!this.rowHeights[i]) this.rowHeights[i] = this.baseRowHeight;
             const tr = document.createElement('tr');
             tr.style.height = `${this.rowHeights[i]}px`;
             tr.dataset.rowIndex = String(i);
@@ -773,6 +895,329 @@
                 tr.appendChild(td);
             }
             this.tbody.appendChild(tr);
+        }
+    }
+
+    renderImages() {
+        const layer = this.ensureImageLayer();
+        if (!layer) return;
+        const images = this.activeSheet.images || [];
+        const anchorCell = this.getCellEl(1, 1);
+        const actualTop = anchorCell?.offsetTop || 0;
+        const actualLeft = anchorCell?.offsetLeft || 0;
+        const expectedTop = (this.activeSheet?.rowHeights?.[1] || this.baseRowHeight);
+        const expectedLeft = this.rowHeaderWidth;
+        layer.innerHTML = '';
+        if (this.table) {
+            layer.style.width = `${this.table.offsetWidth}px`;
+            layer.style.height = `${this.table.offsetHeight}px`;
+        }
+        images.forEach((img) => {
+            if (img && img._importedOffsetPending && (actualTop || actualLeft)) {
+                const baseY = Math.max(0, Number(img.y) || 0);
+                const baseX = Math.max(0, Number(img.x) || 0);
+                const deltaY = (actualTop - expectedTop) - 1;
+                const deltaX = (actualLeft - expectedLeft);
+                img.y = Math.max(0, baseY + deltaY);
+                img.x = Math.max(0, baseX + deltaX);
+                img._importedOffsetPending = false;
+                if (typeof this.calcImageAnchorFromPixels === 'function') {
+                    img.anchor = this.calcImageAnchorFromPixels(img, this.activeSheet);
+                }
+            }
+            const wrapper = document.createElement('div');
+            wrapper.className = 'sheet-image' + (img.id === this.activeImageId ? ' selected' : '');
+            if (img.locked) wrapper.classList.add('locked');
+            wrapper.dataset.imageId = img.id;
+            wrapper.style.left = `${img.x}px`;
+            wrapper.style.top = `${img.y}px`;
+            wrapper.style.width = `${img.w}px`;
+            wrapper.style.height = `${img.h}px`;
+            wrapper.style.zIndex = String(img.z || 1);
+            wrapper.addEventListener('mousedown', (e) => this.handleImageMouseDown(e, img.id));
+            wrapper.addEventListener('contextmenu', (e) => this.showImageContextMenu(e, img.id));
+
+            const imageEl = document.createElement('img');
+            imageEl.src = img.src;
+            imageEl.alt = img.name || 'image';
+            wrapper.appendChild(imageEl);
+
+            if (!img.locked) {
+                ['nw', 'ne', 'sw', 'se'].forEach((handle) => {
+                    const h = document.createElement('div');
+                    h.className = 'image-handle';
+                    h.dataset.handle = handle;
+                    wrapper.appendChild(h);
+                });
+            }
+
+            layer.appendChild(wrapper);
+        });
+    }
+
+    bindImageContextMenu() {
+        this.imageContextMenu = document.getElementById('image-context-menu');
+        if (!this.imageContextMenu) return;
+        this.imageContextMenu.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-action]');
+            if (!btn) return;
+            const action = btn.dataset.action;
+            const id = this.imageContextTargetId;
+            if (!id) return;
+            if (action === 'bring-front') this.bringImageToFront(id);
+            if (action === 'send-back') this.sendImageToBack(id);
+            if (action === 'delete') this.deleteActiveImage();
+            if (action === 'original-size') this.resetImageOriginalSize(id);
+            if (action === 'toggle-lock') this.toggleImageLock(id);
+            this.hideImageContextMenu();
+        });
+        document.addEventListener('click', () => this.hideImageContextMenu());
+        window.addEventListener('scroll', () => this.hideImageContextMenu());
+    }
+
+    showImageContextMenu(e, id) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.selectImage(id);
+        this.imageContextTargetId = id;
+        if (!this.imageContextMenu) return;
+        const img = this.getImageById(id);
+        const lockBtn = this.imageContextMenu.querySelector('[data-action="toggle-lock"]');
+        if (lockBtn) lockBtn.textContent = img && img.locked ? 'Unlock' : 'Lock';
+        this.imageContextMenu.style.display = 'block';
+        const pad = 8;
+        const x = Math.min(window.innerWidth - this.imageContextMenu.offsetWidth - pad, e.clientX);
+        const y = Math.min(window.innerHeight - this.imageContextMenu.offsetHeight - pad, e.clientY);
+        this.imageContextMenu.style.left = `${Math.max(pad, x)}px`;
+        this.imageContextMenu.style.top = `${Math.max(pad, y)}px`;
+    }
+
+    hideImageContextMenu() {
+        if (!this.imageContextMenu) return;
+        this.imageContextMenu.style.display = 'none';
+        this.imageContextTargetId = null;
+    }
+
+    normalizeImageZ() {
+        const images = this.activeSheet.images || [];
+        images.sort((a, b) => (a.z || 0) - (b.z || 0));
+        images.forEach((img, idx) => {
+            img.z = idx + 1;
+        });
+    }
+
+    bringImageToFront(id) {
+        const img = this.getImageById(id);
+        if (!img) return;
+        const images = this.activeSheet.images || [];
+        const maxZ = images.reduce((acc, cur) => Math.max(acc, cur.z || 0), 0);
+        img.z = maxZ + 1;
+        this.normalizeImageZ();
+        this.renderImages();
+        this.markDirty();
+    }
+
+    sendImageToBack(id) {
+        const img = this.getImageById(id);
+        if (!img) return;
+        const images = this.activeSheet.images || [];
+        const minZ = images.reduce((acc, cur) => Math.min(acc, cur.z || 1), img.z || 1);
+        img.z = minZ - 1;
+        this.normalizeImageZ();
+        this.renderImages();
+        this.markDirty();
+    }
+
+    resetImageOriginalSize(id) {
+        const img = this.getImageById(id);
+        if (!img || !img.src) return;
+        const probe = new Image();
+        probe.onload = () => {
+            img.w = Math.max(40, probe.naturalWidth || img.w);
+            img.h = Math.max(40, probe.naturalHeight || img.h);
+            img.anchor = this.calcImageAnchorFromPixels(img, this.activeSheet);
+            this.renderImages();
+            this.markDirty();
+        };
+        probe.src = img.src;
+    }
+
+    toggleImageLock(id) {
+        const img = this.getImageById(id);
+        if (!img) return;
+        img.locked = !img.locked;
+        this.renderImages();
+        this.markDirty();
+    }
+
+    openImageDialog() {
+        if (!this.imageInput) return;
+        this.imageInput.value = '';
+        this.imageInput.click();
+    }
+
+    insertImageFromSrc(src, name = '') {
+        if (!src) return;
+        const img = new Image();
+        img.onload = () => {
+            const maxDim = 240;
+            let width = img.naturalWidth || maxDim;
+            let height = img.naturalHeight || maxDim;
+            if (width > maxDim) {
+                const scale = maxDim / width;
+                width = Math.round(width * scale);
+                height = Math.round(height * scale);
+            }
+            if (height > maxDim) {
+                const scale = maxDim / height;
+                width = Math.round(width * scale);
+                height = Math.round(height * scale);
+            }
+            width = Math.max(40, width);
+            height = Math.max(40, height);
+
+            const cell = this.selectedCell || this.getCellEl(1, 1);
+            const x = cell ? cell.offsetLeft : 0;
+            const y = cell ? cell.offsetTop : 0;
+            const id = `img_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+            const images = this.activeSheet.images || [];
+            const maxZ = images.reduce((acc, cur) => Math.max(acc, cur.z || 0), 0);
+            const payload = { id, src, x, y, w: width, h: height, name, z: maxZ + 1 };
+            payload.anchor = this.calcImageAnchorFromPixels(payload, this.activeSheet);
+            if (!this.activeSheet.images) this.activeSheet.images = [];
+            this.activeSheet.images.push(payload);
+            this.selectImage(id);
+            this.renderImages();
+            this.markDirty();
+        };
+        img.src = src;
+    }
+
+    async handleImageFileSelect(e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file || !file.type || !file.type.startsWith('image/')) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            const src = String(reader.result || '');
+            this.insertImageFromSrc(src, file.name || '');
+        };
+        reader.readAsDataURL(file);
+    }
+
+    handleImagePaste(e) {
+        const items = e.clipboardData && e.clipboardData.items ? Array.from(e.clipboardData.items) : [];
+        const imageItem = items.find(item => item.type && item.type.startsWith('image/'));
+        if (!imageItem) return false;
+        const file = imageItem.getAsFile();
+        if (!file) return false;
+        const reader = new FileReader();
+        reader.onload = () => {
+            const src = String(reader.result || '');
+            this.insertImageFromSrc(src, file.name || 'clipboard.png');
+        };
+        reader.readAsDataURL(file);
+        return true;
+    }
+
+    handleImageMouseDown(e, id) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.selectImage(id);
+        const handle = e.target.closest('.image-handle');
+        const img = this.getImageById(id);
+        if (!img) return;
+        if (img.locked) return;
+
+        this.imageDragState = {
+            id,
+            startX: e.clientX,
+            startY: e.clientY,
+            startLeft: img.x,
+            startTop: img.y,
+            startW: img.w,
+            startH: img.h,
+            handle: handle ? handle.dataset.handle : null
+        };
+
+        if (handle) {
+            this.isResizingImage = true;
+        } else {
+            this.isDraggingImage = true;
+        }
+    }
+
+    handleImageDragMove(e) {
+        if (!this.imageDragState) return;
+        const img = this.getImageById(this.imageDragState.id);
+        if (!img) return;
+
+        const dx = e.clientX - this.imageDragState.startX;
+        const dy = e.clientY - this.imageDragState.startY;
+        const minSize = 20;
+
+        if (this.isDraggingImage) {
+            img.x = Math.max(0, this.imageDragState.startLeft + dx);
+            img.y = Math.max(0, this.imageDragState.startTop + dy);
+        } else if (this.isResizingImage) {
+            let left = this.imageDragState.startLeft;
+            let top = this.imageDragState.startTop;
+            let width = this.imageDragState.startW;
+            let height = this.imageDragState.startH;
+            const handle = this.imageDragState.handle || 'se';
+
+            if (handle.includes('e')) {
+                width = Math.max(minSize, this.imageDragState.startW + dx);
+            }
+            if (handle.includes('s')) {
+                height = Math.max(minSize, this.imageDragState.startH + dy);
+            }
+            if (handle.includes('w')) {
+                width = Math.max(minSize, this.imageDragState.startW - dx);
+                left = this.imageDragState.startLeft + (this.imageDragState.startW - width);
+            }
+            if (handle.includes('n')) {
+                height = Math.max(minSize, this.imageDragState.startH - dy);
+                top = this.imageDragState.startTop + (this.imageDragState.startH - height);
+            }
+
+            img.x = Math.max(0, left);
+            img.y = Math.max(0, top);
+            img.w = width;
+            img.h = height;
+        }
+
+        const el = this.imageLayer?.querySelector(`[data-image-id="${img.id}"]`);
+        if (el) {
+            el.style.left = `${img.x}px`;
+            el.style.top = `${img.y}px`;
+            el.style.width = `${img.w}px`;
+            el.style.height = `${img.h}px`;
+        }
+    }
+
+    handleImageDragEnd() {
+        if (this.isDraggingImage || this.isResizingImage) {
+            this.isDraggingImage = false;
+            this.isResizingImage = false;
+            this.imageDragState = null;
+            if (this.activeImageId) {
+                const img = this.getImageById(this.activeImageId);
+                if (img) img.anchor = this.calcImageAnchorFromPixels(img, this.activeSheet);
+            }
+            this.markDirty();
+        }
+    }
+
+    deleteActiveImage() {
+        if (!this.activeImageId) return;
+        const images = this.activeSheet.images || [];
+        const idx = images.findIndex(img => img.id === this.activeImageId);
+        if (idx >= 0) {
+            images.splice(idx, 1);
+            this.activeImageId = null;
+            this.renderImages();
+            this.markDirty();
         }
     }
 
@@ -955,6 +1400,19 @@
         this.fileInput = document.getElementById('csv-file-input');
         this.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
 
+        const imageBtn = document.getElementById('btn-insert-image');
+        if (imageBtn) imageBtn.addEventListener('click', () => this.openImageDialog());
+        this.imageInput = document.getElementById('image-file-input');
+        if (this.imageInput) this.imageInput.addEventListener('change', (e) => this.handleImageFileSelect(e));
+        if (this.container) {
+            this.container.addEventListener('paste', (e) => {
+                if (this.handleImagePaste(e)) {
+                    e.preventDefault();
+                }
+            });
+        }
+        this.bindImageContextMenu();
+
         // Infinite Scroll logic to minimize browser DOM burden
         this.container.addEventListener('scroll', () => {
             // Add rows when scroll reaches near the bottom of the container
@@ -985,6 +1443,10 @@
 
         // Mouse move/up for range selection, fill handle & resize (global)
         document.addEventListener('mousemove', (e) => {
+            if (this.isDraggingImage || this.isResizingImage) {
+                this.handleImageDragMove(e);
+                return;
+            }
             if (this.isResizingCol || this.isResizingRow) {
                 this.handleResizeMove(e);
                 return;
@@ -1002,6 +1464,10 @@
         });
 
         document.addEventListener('mouseup', (e) => {
+            if (this.isDraggingImage || this.isResizingImage) {
+                this.handleImageDragEnd(e);
+                return;
+            }
             if (this.isResizingCol || this.isResizingRow) {
                 this.handleResizeEnd(e);
                 return;
@@ -1065,6 +1531,11 @@
             }
 
             if (e.key === 'Delete') {
+                if (this.activeImageId) {
+                    e.preventDefault();
+                    this.deleteActiveImage();
+                    return;
+                }
                 if (this.selectionRange) {
                     e.preventDefault();
                     this.deleteSelection();
@@ -1448,7 +1919,7 @@
         const cellRect = cell.getBoundingClientRect();
         
         // Sticky boundary offsets (Matches CSS heights/widths)
-        const headerHeight = 25; // Standard row height for col headers
+        const headerHeight = this.baseRowHeight; // Standard row height for col headers
         const rowHeaderWidth = 40; // Fixed width for row headers
         
         const buffer = 5; // Extra padding for comfort
@@ -1948,6 +2419,7 @@
     handleCellMouseDown(cell, e) {
         // Don't start selection if clicking fill handle
         if (e.target.classList.contains('fill-handle')) return;
+        if (this.activeImageId) this.clearImageSelection();
 
         let cellId = cell.dataset.id;
         let { row, colNum } = this.parseCellId(cellId);
@@ -2895,12 +3367,23 @@
         const btnPrint = document.getElementById('print-run');
         if (!modal || !btnClose || !btnCancel || !btnApply || !btnPrint) return;
 
-        const close = () => { modal.style.display = 'none'; };
-        btnClose.addEventListener('click', close);
-        btnCancel.addEventListener('click', close);
+        const close = (restore = false) => {
+            if (restore && this.printSettingsSnapshot) {
+                this.activeSheet.printSettings = this.printSettingsSnapshot;
+                this.printSettingsSnapshot = null;
+                this.updatePrintOrientationIndicator();
+                this.updatePrintRunButtonState();
+                this.renderPrintPreview();
+                this.updatePageBreakPreview();
+            }
+            modal.style.display = 'none';
+        };
+        btnClose.addEventListener('click', () => close(true));
+        btnCancel.addEventListener('click', () => close(true));
 
         btnApply.addEventListener('click', () => {
             this.applyPrintSettingsFromUI();
+            this.printSettingsSnapshot = null;
         });
         btnPrint.addEventListener('click', () => {
             this.applyPrintSettingsFromUI();
@@ -2910,15 +3393,22 @@
                 this.updateStatusBadge('Error: Print area is required');
                 return;
             }
-            close();
+            close(false);
             window.print();
         });
+
+        if (!this.printModalLiveBound) {
+            modal.addEventListener('input', () => this.applyPrintSettingsFromUI());
+            modal.addEventListener('change', () => this.applyPrintSettingsFromUI());
+            this.printModalLiveBound = true;
+        }
     }
 
     openPrintSettingsModal() {
         const modal = document.getElementById('print-settings-modal');
         if (!modal) return;
         const settings = this.getPrintSettings();
+        this.printSettingsSnapshot = JSON.parse(JSON.stringify(settings));
         this.updatePrintOrientationIndicator();
         this.updatePrintRunButtonState();
 
@@ -3115,13 +3605,115 @@
     }
 
     handleBeforePrint() {
-        this.applyPrintPageLayout(true);
+        this.applyDynamicPageRule(this.getPrintSettings());
         this.applyPrintVisibility(true);
+        this.buildPrintPages();
+        document.body.classList.add('custom-print-active');
     }
 
     handleAfterPrint() {
+        document.body.classList.remove('custom-print-active');
+        this.clearPrintPages();
         this.applyPrintVisibility(false);
-        this.applyPrintPageLayout(false);
+        this.applyDynamicPageRule(null);
+    }
+
+    clearPrintPages() {
+        const container = this.ensurePrintPagesContainer();
+        container.innerHTML = '';
+    }
+
+    buildPrintPages() {
+        const container = this.ensurePrintPagesContainer();
+        container.innerHTML = '';
+        if (!this.table) return;
+
+        const range = this.getPrintRange();
+        const settings = this.getPrintSettings();
+        const pagination = this.getPrintPagination(range, settings);
+        const scaleFactor = this.getPrintScaleFactor(range, settings);
+        const paperSizes = { A4: { w: 210, h: 297 }, Letter: { w: 216, h: 279 } };
+        const basePaper = paperSizes[settings.paper] || paperSizes.A4;
+        const paper = settings.orientation === 'landscape'
+            ? { w: basePaper.h, h: basePaper.w }
+            : basePaper;
+        const pxPerMm = this.getPxPerMm();
+        const printableW = Math.max(1, (paper.w - settings.margins.left - settings.margins.right) * pxPerMm);
+        const printableH = Math.max(1, (paper.h - settings.margins.top - settings.margins.bottom) * pxPerMm);
+        const totalPages = pagination.pagesX * pagination.pagesY;
+        const offsetsX = [0, ...pagination.breaksX];
+        const offsetsY = [0, ...pagination.breaksY];
+
+        let pageNo = 1;
+        offsetsY.forEach((offsetY) => {
+            offsetsX.forEach((offsetX) => {
+                const page = document.createElement('div');
+                page.className = 'vs-print-page';
+
+                if (settings.headerFooter?.enabled) {
+                    const header = document.createElement('div');
+                    header.className = 'vs-print-page-header';
+                    header.textContent = this.expandPrintTokens(settings.headerFooter.header.center, pageNo, totalPages);
+                    page.appendChild(header);
+                }
+
+                const viewport = document.createElement('div');
+                viewport.className = 'vs-print-page-viewport';
+                viewport.style.width = `${Math.ceil(printableW)}px`;
+                viewport.style.height = `${Math.ceil(printableH)}px`;
+
+                const scaleWrap = document.createElement('div');
+                scaleWrap.className = 'vs-print-page-scale';
+                scaleWrap.style.transform = `scale(${scaleFactor})`;
+                scaleWrap.style.transformOrigin = 'top left';
+
+                const clone = this.table.cloneNode(true);
+                clone.classList.add('vs-print-page-clone');
+                clone.style.zoom = '1';
+                clone.style.transform = 'none';
+                clone.style.width = '0';
+                clone.style.position = 'absolute';
+                clone.style.left = `${-offsetX}px`;
+                clone.style.top = `${-offsetY}px`;
+
+                scaleWrap.appendChild(clone);
+                const imageLayer = this.buildPrintImageLayer(offsetX, offsetY);
+                if (imageLayer) {
+                    scaleWrap.appendChild(imageLayer);
+                }
+                viewport.appendChild(scaleWrap);
+                page.appendChild(viewport);
+
+                if (settings.headerFooter?.enabled) {
+                    const footer = document.createElement('div');
+                    footer.className = 'vs-print-page-footer-lite';
+                    footer.textContent = this.expandPrintTokens(settings.headerFooter.footer.center, pageNo, totalPages);
+                    page.appendChild(footer);
+                }
+
+                container.appendChild(page);
+                pageNo++;
+            });
+        });
+    }
+
+    buildPrintImageLayer(offsetX, offsetY) {
+        const images = this.activeSheet.images || [];
+        if (!images.length) return null;
+        const layer = document.createElement('div');
+        layer.className = 'vs-print-image-layer';
+        layer.style.left = `${-offsetX}px`;
+        layer.style.top = `${-offsetY}px`;
+        images.forEach((img) => {
+            const imageEl = document.createElement('img');
+            imageEl.src = img.src;
+            imageEl.style.left = `${img.x}px`;
+            imageEl.style.top = `${img.y}px`;
+            imageEl.style.width = `${img.w}px`;
+            imageEl.style.height = `${img.h}px`;
+            layer.appendChild(imageEl);
+        });
+        return layer;
     }
 
     applyPrintPageLayout(enable) {
@@ -3189,13 +3781,26 @@
 `;
     }
 
+    getPxPerMm() {
+        const testEl = document.createElement('div');
+        testEl.style.width = '100mm';
+        testEl.style.height = '0';
+        testEl.style.position = 'absolute';
+        testEl.style.visibility = 'hidden';
+        testEl.style.pointerEvents = 'none';
+        document.body.appendChild(testEl);
+        const px = testEl.getBoundingClientRect().width;
+        document.body.removeChild(testEl);
+        return Math.max(1, px / 100);
+    }
+
     getPrintScaleFactor(range, settings = this.getPrintSettings()) {
         const paperSizes = { A4: { w: 210, h: 297 }, Letter: { w: 216, h: 279 } };
         const basePaper = paperSizes[settings.paper] || paperSizes.A4;
         const paper = settings.orientation === 'landscape'
             ? { w: basePaper.h, h: basePaper.w }
             : basePaper;
-        const pxPerMm = 96 / 25.4;
+        const pxPerMm = this.getPxPerMm();
         const contentWidth = Math.max(1, this.getRangePixelSize(range).width);
         const contentHeight = Math.max(1, this.getRangePixelSize(range).height);
         const printableW = Math.max(1, (paper.w - settings.margins.left - settings.margins.right) * pxPerMm);
@@ -3426,18 +4031,16 @@
         const paper = settings.orientation === 'landscape'
             ? { w: basePaper.h, h: basePaper.w }
             : basePaper;
-        const pxPerMm = 96 / 25.4;
+        const pxPerMm = this.getPxPerMm();
         const contentWidth = this.getRangePixelSize(range).width;
         const contentHeight = this.getRangePixelSize(range).height;
         const printableW = Math.max(1, (paper.w - settings.margins.left - settings.margins.right) * pxPerMm);
         const printableH = Math.max(1, (paper.h - settings.margins.top - settings.margins.bottom) * pxPerMm);
 
         const scaleFactor = this.getPrintScaleFactor(range, settings);
-
-        const scaledW = contentWidth * scaleFactor;
-        const scaledH = contentHeight * scaleFactor;
-        const pagesX = Math.max(1, Math.ceil(scaledW / printableW));
-        const pagesY = Math.max(1, Math.ceil(scaledH / printableH));
+        const pagination = this.getPrintPagination(range, settings);
+        const pagesX = pagination.pagesX;
+        const pagesY = pagination.pagesY;
         this.lastPrintPageCount = pagesX * pagesY;
 
         preview.innerHTML = '';
@@ -3459,27 +4062,33 @@
         const previewH = totalPrintableH * scaleToPreview;
         grid.style.width = `${previewW}px`;
         grid.style.height = `${previewH}px`;
-        grid.style.left = `${(canvasWidth - previewW) / 2}px`;
-        grid.style.top = `${(canvasHeight - previewH) / 2}px`;
+        const gridOffsetX = (canvasWidth - previewW) / 2;
+        const gridOffsetY = (canvasHeight - previewH) / 2;
+        grid.style.left = `${gridOffsetX}px`;
+        grid.style.top = `${gridOffsetY}px`;
 
         let x = 0;
         let y = 0;
         let cellCount = 0;
         const maxCells = 600;
         for (let r = range.startRow; r <= range.endRow; r++) {
-            const h = (this.rowHeights[r] || 25) * finalScale;
-            if (y + h > canvasHeight) break;
+            const h = (this.rowHeights[r] || this.baseRowHeight) * finalScale;
+            if (y + h > previewH) break;
             x = 0;
             for (let c = range.startCol; c <= range.endCol; c++) {
-                const w = (this.colWidths[c - 1] || 100) * finalScale;
-                if (x + w > canvasWidth) break;
+                const w = (this.colWidths[c - 1] || this.baseColWidth) * finalScale;
+                if (x + w > previewW) break;
+                const id = `${this.numberToCol(c)}${r}`;
+                if (!this.isCellPrintable(id)) {
+                    x += w;
+                    continue;
+                }
                 const cell = document.createElement('div');
                 cell.className = 'preview-cell';
                 cell.style.left = `${x}px`;
                 cell.style.top = `${y}px`;
                 cell.style.width = `${Math.max(1, w)}px`;
                 cell.style.height = `${Math.max(1, h)}px`;
-                const id = `${this.numberToCol(c)}${r}`;
                 const raw = this.getRawValue(id);
                 if (raw) cell.textContent = raw;
                 const style = this.cellStyles[id];
@@ -3495,18 +4104,22 @@
         }
 
         // Page break lines
-        for (let i = 1; i < pagesX; i++) {
+        pagination.breaksX.forEach((breakX) => {
             const line = document.createElement('div');
             line.className = 'print-preview-break-v';
-            line.style.left = `${(i / pagesX) * 100}%`;
+            line.style.left = `${gridOffsetX + (breakX * finalScale)}px`;
+            line.style.top = `${gridOffsetY}px`;
+            line.style.height = `${previewH}px`;
             canvas.appendChild(line);
-        }
-        for (let j = 1; j < pagesY; j++) {
+        });
+        pagination.breaksY.forEach((breakY) => {
             const line = document.createElement('div');
             line.className = 'print-preview-break-h';
-            line.style.top = `${(j / pagesY) * 100}%`;
+            line.style.top = `${gridOffsetY + (breakY * finalScale)}px`;
+            line.style.left = `${gridOffsetX}px`;
+            line.style.width = `${previewW}px`;
             canvas.appendChild(line);
-        }
+        });
 
         // Page labels
         const pages = document.createElement('div');
@@ -3565,7 +4178,7 @@
         const paper = settings.orientation === 'landscape'
             ? { w: basePaper.h, h: basePaper.w }
             : basePaper;
-        const pxPerMm = 96 / 25.4;
+        const pxPerMm = this.getPxPerMm();
         const content = this.getRangePixelSize(range);
         const contentWidth = Math.max(1, content.width);
         const contentHeight = Math.max(1, content.height);
@@ -3574,18 +4187,18 @@
         const scaleFactor = this.getPrintScaleFactor(range, settings);
         const scaledW = contentWidth * scaleFactor;
         const scaledH = contentHeight * scaleFactor;
-        const pagesX = Math.max(1, Math.ceil(scaledW / printableW));
-        const pagesY = Math.max(1, Math.ceil(scaledH / printableH));
-        const pageSpanWidth = (printableW * pagesX) / scaleFactor;
-        const pageSpanHeight = (printableH * pagesY) / scaleFactor;
         const breaksX = [];
         const breaksY = [];
+        const pagesX = Math.max(1, Math.ceil(scaledW / printableW));
+        const pagesY = Math.max(1, Math.ceil(scaledH / printableH));
         for (let i = 1; i < pagesX; i++) {
             breaksX.push((i * printableW) / scaleFactor);
         }
         for (let j = 1; j < pagesY; j++) {
             breaksY.push((j * printableH) / scaleFactor);
         }
+        const pageSpanWidth = (printableW * pagesX) / scaleFactor;
+        const pageSpanHeight = (printableH * pagesY) / scaleFactor;
         return {
             pagesX,
             pagesY,
@@ -3637,8 +4250,9 @@
 
         const left = tlRect.left - containerRect.left + this.container.scrollLeft;
         const top = tlRect.top - containerRect.top + this.container.scrollTop;
-        const contentWidthPx = Math.max(1, brRect.right - tlRect.left);
-        const contentHeightPx = Math.max(1, brRect.bottom - tlRect.top);
+        const content = this.getRangePixelSize(range);
+        const contentWidthPx = Math.max(1, content.width);
+        const contentHeightPx = Math.max(1, content.height);
         const pagination = this.getPrintPagination(range, this.getPrintSettings());
         const width = Math.max(contentWidthPx, Math.ceil(pagination.pageSpanWidth || 0));
         const height = Math.max(contentHeightPx, Math.ceil(pagination.pageSpanHeight || 0));
@@ -3668,10 +4282,10 @@
         let width = 0;
         let height = 0;
         for (let c = range.startCol; c <= range.endCol; c++) {
-            width += this.colWidths[c - 1] || 100;
+            width += this.colWidths[c - 1] || this.baseColWidth;
         }
         for (let r = range.startRow; r <= range.endRow; r++) {
-            height += this.rowHeights[r] || 25;
+            height += this.rowHeights[r] || this.baseRowHeight;
         }
         return { width, height };
     }
@@ -3781,14 +4395,36 @@
         if (settings.printArea) {
             return this.expandRangeToIncludeMerges(settings.printArea);
         }
+        let baseRange = null;
         if (settings.range === 'selection') {
-            const range = this.selectionRange || settings.selectionRange;
-            if (range) return this.expandRangeToIncludeMerges(range);
+            baseRange = this.selectionRange || settings.selectionRange || null;
+        } else if (settings.range === 'used') {
+            baseRange = this.getUsedRangeForSheet();
+        } else {
+            baseRange = { startCol: 1, startRow: 1, endCol: this.cols, endRow: this.rows };
         }
-        if (settings.range === 'used') {
-            return this.getUsedRangeForSheet();
+
+        if (!baseRange) return { startCol: 1, startRow: 1, endCol: 1, endRow: 1 };
+
+        if (settings.range === 'selection' || settings.range === 'current') {
+            const used = this.getUsedRangeForSheet();
+            const intersected = this.intersectRanges(baseRange, used);
+            if (intersected) {
+                return this.expandRangeToIncludeMerges(intersected);
+            }
         }
-        return { startCol: 1, startRow: 1, endCol: this.cols, endRow: this.rows };
+
+        return this.expandRangeToIncludeMerges(baseRange);
+    }
+
+    intersectRanges(a, b) {
+        if (!a || !b) return null;
+        const startCol = Math.max(a.startCol, b.startCol);
+        const startRow = Math.max(a.startRow, b.startRow);
+        const endCol = Math.min(a.endCol, b.endCol);
+        const endRow = Math.min(a.endRow, b.endRow);
+        if (startCol > endCol || startRow > endRow) return null;
+        return { startCol, startRow, endCol, endRow };
     }
 
     isBlankValue(value) {
@@ -3958,7 +4594,7 @@
         let pasteEndRow = anchor.row + numRows - 1;
         if (pasteEndCol > this.cols) {
             for (let cAdd = this.cols + 1; cAdd <= pasteEndCol; cAdd++) {
-                this.colWidths[cAdd - 1] = 100;
+                this.colWidths[cAdd - 1] = this.baseColWidth;
             }
             this.cols = pasteEndCol;
             this.refreshGridUI();
@@ -4002,7 +4638,7 @@
                 }
                 if (endCol > this.cols) {
                     for (let cAdd = this.cols + 1; cAdd <= endCol; cAdd++) {
-                        this.colWidths[cAdd - 1] = 100;
+                        this.colWidths[cAdd - 1] = this.baseColWidth;
                     }
                     this.cols = endCol;
                     this.refreshGridUI();
@@ -4257,7 +4893,7 @@
                 } else {
                     const colsToAdd = 10;
                     for (let c = this.cols + 1; c <= this.cols + colsToAdd; c++) {
-                        this.colWidths[c - 1] = 100;
+                        this.colWidths[c - 1] = this.baseColWidth;
                     }
                     this.cols += colsToAdd;
                     this.refreshGridUI();
@@ -4276,7 +4912,7 @@
                     } else {
                         const colsToAdd = 10;
                         for (let c = this.cols + 1; c <= this.cols + colsToAdd; c++) {
-                            this.colWidths[c - 1] = 100;
+                            this.colWidths[c - 1] = this.baseColWidth;
                         }
                         this.cols += colsToAdd;
                         this.refreshGridUI();
@@ -4437,7 +5073,7 @@
         }
         if (desiredCol > this.cols) {
             for (let c = this.cols + 1; c <= desiredCol; c++) {
-                this.colWidths[c - 1] = 100;
+                this.colWidths[c - 1] = this.baseColWidth;
             }
             this.cols = desiredCol;
             this.refreshGridUI();
@@ -4582,8 +5218,8 @@
 
             sheet.rows = Math.max(this.baseRows, worksheet.rowCount || 0);
             sheet.cols = Math.max(this.baseCols, worksheet.columnCount || 0);
-            sheet.colWidths = new Array(sheet.cols).fill(100);
-            sheet.rowHeights = new Array(sheet.rows + 1).fill(25);
+            sheet.colWidths = new Array(sheet.cols).fill(this.baseColWidth);
+            sheet.rowHeights = new Array(sheet.rows + 1).fill(this.baseRowHeight);
 
             worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
                 row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
@@ -5443,7 +6079,7 @@
         const range = this.getEffectiveRange();
         const index = range ? range.startRow : 1;
         this.shiftData('row', index, 1);
-        this.rowHeights.splice(index, 0, 25);
+        this.rowHeights.splice(index, 0, this.baseRowHeight);
         this.rows++;
         this.refreshGridUI();
         this.markDirty();
@@ -5482,7 +6118,7 @@
         const range = this.getEffectiveRange();
         const index = range ? range.startCol : 1;
         this.shiftData('col', index, 1);
-        this.colWidths.splice(index - 1, 0, 100);
+        this.colWidths.splice(index - 1, 0, this.baseColWidth);
         this.cols++;
         this.refreshGridUI();
         this.markDirty();
