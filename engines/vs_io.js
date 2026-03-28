@@ -144,8 +144,124 @@
                 return;
             }
 
+            const preprocessDrawingOffsets = async (inputBuffer) => {
+                if (typeof JSZip === 'undefined') return inputBuffer;
+                try {
+                    const zip = await JSZip.loadAsync(inputBuffer);
+                    const drawingFiles = Object.keys(zip.files).filter((name) =>
+                        name.startsWith('xl/drawings/') && name.endsWith('.xml')
+                    );
+                    if (!drawingFiles.length) return inputBuffer;
+
+                    let changed = false;
+                    const clampOffsets = (xml) => {
+                        let updated = xml.replace(/<(colOff|rowOff)>-\d+<\/\1>/g, '<$1>0</$1>');
+                        if (updated !== xml) changed = true;
+                        return updated;
+                    };
+
+                    for (const name of drawingFiles) {
+                        const xml = await zip.file(name).async('string');
+                        const updated = clampOffsets(xml);
+                        if (updated !== xml) {
+                            zip.file(name, updated);
+                        }
+                    }
+
+                    if (!changed) return inputBuffer;
+                    return await zip.generateAsync({ type: 'arraybuffer' });
+                } catch (err) {
+                    console.warn('XLSX drawing offset clamp failed:', err);
+                    return inputBuffer;
+                }
+            };
+
+            const stripDrawingParts = async (inputBuffer) => {
+                if (typeof JSZip === 'undefined') return inputBuffer;
+                try {
+                    const zip = await JSZip.loadAsync(inputBuffer);
+                    const names = Object.keys(zip.files);
+                    let changed = false;
+
+                    names
+                        .filter((name) => name.startsWith('xl/drawings/'))
+                        .forEach((name) => {
+                            zip.remove(name);
+                            changed = true;
+                        });
+
+                    const sheetRels = names.filter((name) =>
+                        name.startsWith('xl/worksheets/_rels/') && name.endsWith('.rels')
+                    );
+                    for (const name of sheetRels) {
+                        const xml = await zip.file(name).async('string');
+                        const updated = xml.replace(
+                            /<Relationship\b[^>]*Type="[^"]*\/(drawing|vmlDrawing)"[^>]*\/>/g,
+                            ''
+                        );
+                        if (updated !== xml) {
+                            zip.file(name, updated);
+                            changed = true;
+                        }
+                    }
+
+                    const worksheets = names.filter((name) =>
+                        name.startsWith('xl/worksheets/') && name.endsWith('.xml')
+                    );
+                    for (const name of worksheets) {
+                        const xml = await zip.file(name).async('string');
+                        const updated = xml
+                            .replace(/<drawing\b[^>]*\/>/g, '')
+                            .replace(/<legacyDrawing\b[^>]*\/>/g, '');
+                        if (updated !== xml) {
+                            zip.file(name, updated);
+                            changed = true;
+                        }
+                    }
+
+                    if (zip.files['[Content_Types].xml']) {
+                        const xml = await zip.file('[Content_Types].xml').async('string');
+                        const updated = xml.replace(
+                            /<Override\b[^>]*PartName="\/xl\/drawings\/[^"]*"[^>]*\/>/g,
+                            ''
+                        );
+                        if (updated !== xml) {
+                            zip.file('[Content_Types].xml', updated);
+                            changed = true;
+                        }
+                    }
+
+                    if (!changed) return inputBuffer;
+                    return await zip.generateAsync({ type: 'arraybuffer' });
+                } catch (err) {
+                    console.warn('XLSX drawing strip failed:', err);
+                    return inputBuffer;
+                }
+            };
+
             const workbook = new ExcelJS.Workbook();
-            await workbook.xlsx.load(buffer);
+            let sanitizedBuffer = buffer;
+            try {
+                sanitizedBuffer = await preprocessDrawingOffsets(buffer);
+                await workbook.xlsx.load(sanitizedBuffer);
+            } catch (err) {
+                console.error('ExcelJS load failed:', err);
+                try {
+                    const strippedBuffer = await stripDrawingParts(sanitizedBuffer);
+                    if (strippedBuffer !== sanitizedBuffer) {
+                        await workbook.xlsx.load(strippedBuffer);
+                        alert('이미지/도형 정보에 문제가 있어 해당 요소를 제외하고 불러왔습니다.');
+                        sanitizedBuffer = strippedBuffer;
+                    } else {
+                        alert('엑셀 파일 로딩에 실패했습니다. 이미지 앵커(도형/그림) 정보가 포함된 파일에서 오류가 발생할 수 있습니다.\n이미지 제거 후 저장하거나 다른 형식으로 다시 저장한 뒤 시도해 주세요.');
+                        throw err;
+                    }
+                } catch (retryErr) {
+                    console.error('ExcelJS load retry failed:', retryErr);
+                    alert('엑셀 파일 로딩에 실패했습니다. 이미지 앵커(도형/그림) 정보가 포함된 파일에서 오류가 발생할 수 있습니다.\n이미지 제거 후 저장하거나 다른 형식으로 다시 저장한 뒤 시도해 주세요.');
+                    throw retryErr;
+                }
+            }
 
             const normalizeCellValue = (value) => {
                 if (value === null || value === undefined) return '';

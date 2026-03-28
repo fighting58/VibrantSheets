@@ -8,6 +8,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;600&display=swap" rel="stylesheet">
     <!-- ExcelJS for Excel (.xlsx) support -->
     <script src="https://unpkg.com/exceljs@4.4.0/dist/exceljs.min.js"></script>
+    <!-- JSZip for XLSX preprocessing (drawing offset clamp) -->
+    <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
 </head>
 <body class="dark-mode">
     <div id="app">
@@ -39,17 +41,10 @@
                 <div class="group">
                     <div class="group-controls">
                         <select id="font-family" class="tool-select">
-                            <option value="Inter">Inter</option>
-                            <option value="Roboto">Roboto</option>
-                            <option value="Outfit">Outfit</option>
                             <option value="Malgun Gothic" selected>Malgun Gothic</option>
-                            <option value="留묒? 怨좊뵓">留묒? 怨좊뵓</option>
                             <option value="Gulim">Gulim</option>
-                            <option value="援대┝">援대┝</option>
                             <option value="Dotum">Dotum</option>
-                            <option value="?뗭?">?뗭?</option>
                             <option value="Batang">Batang</option>
-                            <option value="諛뷀깢">諛뷀깢</option>
                             <option value="Arial">Arial</option>
                             <option value="Times New Roman">Times New Roman</option>
                             <option value="Calibri">Calibri</option>

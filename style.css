@@ -500,14 +500,31 @@ body {
     padding: 0 4px;
     font-size: 11pt;
     overflow: hidden;
-    white-space: pre-wrap;
-    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-overflow: clip;
     outline: none;
     box-sizing: border-box;
     display: table-cell;
     vertical-align: middle;
     color: var(--grid-text);
     box-shadow: inset -1px -1px 0 var(--grid-line);
+}
+
+.cell .cell-text {
+    display: inline-block;
+    width: 100%;
+    overflow: hidden;
+}
+
+.cell.cell-overflow {
+    overflow: visible;
+    position: relative;
+    z-index: 2;
+}
+
+.cell.cell-overflow .cell-text {
+    width: var(--overflow-width, 100%);
+    pointer-events: none;
 }
 
 .cell:focus {
@@ -534,6 +551,7 @@ body {
     z-index: 100;
     cursor: text;
     user-select: text;
+    white-space: pre-wrap;
 }
 
 .cell.editing:focus {

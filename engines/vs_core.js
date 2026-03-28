@@ -593,7 +593,83 @@
         if (this.formulaEngine && rawValue.trim().startsWith('=')) {
             rawValue = String(this.formulaEngine.evaluate(rawValue, this.getFormulaContext(), new Set()));
         }
-        cell.innerText = this.getFormattedValue(cellId, rawValue);
+        const formatted = this.getFormattedValue(cellId, rawValue);
+        cell.classList.remove('cell-overflow');
+        cell.style.removeProperty('--overflow-width');
+        cell.innerHTML = '';
+        const span = document.createElement('span');
+        span.className = 'cell-text';
+        span.textContent = formatted;
+        cell.appendChild(span);
+        this.applyOverflowForCell(cell, formatted);
+    }
+
+    applyOverflowForCell(cell, textOverride = null) {
+        if (!cell || !cell.dataset?.id) return;
+        if (cell.classList.contains('editing') || cell.classList.contains('merge-hidden')) return;
+        const cellId = cell.dataset.id;
+        const text = textOverride !== null ? textOverride : (cell.querySelector('.cell-text')?.textContent || '');
+        if (!text) {
+            cell.classList.remove('cell-overflow');
+            cell.style.removeProperty('--overflow-width');
+            return;
+        }
+
+        const style = this.cellStyles[cellId] || {};
+        const align = style.textAlign || 'left';
+        if (align !== 'left') return;
+
+        const parsed = this.parseCellId(cellId);
+        if (!parsed) return;
+        const { colNum, row } = parsed;
+
+        const merge = this.getMergedRangeAt(colNum, row);
+        const startCol = merge ? merge.startCol : colNum;
+        const baseEndCol = merge ? merge.endCol : colNum;
+
+        let baseWidth = 0;
+        for (let c = startCol; c <= baseEndCol; c++) {
+            baseWidth += this.colWidths[c - 1] || this.baseColWidth;
+        }
+
+        let extraWidth = 0;
+        for (let c = baseEndCol + 1; c <= this.cols; c++) {
+            if (this.isOverflowBlocked(c, row)) break;
+            extraWidth += this.colWidths[c - 1] || this.baseColWidth;
+        }
+
+        if (extraWidth > 0) {
+            cell.classList.add('cell-overflow');
+            cell.style.setProperty('--overflow-width', `${baseWidth + extraWidth}px`);
+        } else {
+            cell.classList.remove('cell-overflow');
+            cell.style.removeProperty('--overflow-width');
+        }
+    }
+
+    isOverflowBlocked(colNum, row) {
+        const id = `${this.numberToCol(colNum)}${row}`;
+        const raw = this.getRawValue(id);
+        if (raw && raw.trim() !== '') return true;
+
+        const style = this.cellStyles?.[id];
+        if (style && style.backgroundColor && style.backgroundColor !== 'transparent') return true;
+
+        if (this.cellBorders?.[id]) return true;
+
+        if (this.getMergedRangeAt(colNum, row)) return true;
+
+        return false;
+    }
+
+    refreshOverflowForRow(row) {
+        if (!this.tbody) return;
+        for (let c = 1; c <= this.cols; c++) {
+            const cell = this.getCellEl(c, row);
+            if (cell && !cell.classList.contains('header')) {
+                this.applyOverflowForCell(cell);
+            }
+        }
     }
 
     getFormulaContext() {
@@ -1959,6 +2035,7 @@
     applyStyle(prop, value) {
         const targetIds = this.getSelectionTargetIds();
         if (targetIds.length === 0) return;
+        const rowsToRefresh = new Set();
 
         targetIds.forEach(id => {
             if (!this.cellStyles[id]) this.cellStyles[id] = {};
@@ -1968,10 +2045,15 @@
             if (el) {
                 el.style[prop] = value;
             }
+            const parsed = this.parseCellId(id);
+            if (parsed) rowsToRefresh.add(parsed.row);
         });
 
         this.markDirty();
         if (this.selectedCell) this.updateToolbarState(this.selectedCell);
+        if (prop === 'textAlign' || prop === 'backgroundColor') {
+            rowsToRefresh.forEach((row) => this.refreshOverflowForRow(row));
+        }
     }
 
     applyFormat(partialFormat) {
@@ -2420,6 +2502,21 @@
         // Don't start selection if clicking fill handle
         if (e.target.classList.contains('fill-handle')) return;
         if (this.activeImageId) this.clearImageSelection();
+        if (cell.classList.contains('cell-overflow')) {
+            const rect = cell.getBoundingClientRect();
+            const outside = e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom;
+            if (outside) {
+                const prev = cell.style.pointerEvents;
+                cell.style.pointerEvents = 'none';
+                const target = document.elementFromPoint(e.clientX, e.clientY);
+                cell.style.pointerEvents = prev;
+                const targetCell = target?.closest?.('.cell');
+                if (targetCell && targetCell !== cell) {
+                    this.handleCellMouseDown(targetCell, e);
+                    return;
+                }
+            }
+        }
 
         let cellId = cell.dataset.id;
         let { row, colNum } = this.parseCellId(cellId);
@@ -5055,6 +5152,8 @@
         this.needsOverwrite = false;
         this.renderCellValue(cell);
         this.formulaInput.value = this.getRawValue(cellId);
+        const parsed = this.parseCellId(cellId);
+        if (parsed) this.refreshOverflowForRow(parsed.row);
         cell.focus(); // Keep focus for Ready mode navigation
     }
 

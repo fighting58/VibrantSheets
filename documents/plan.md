@@ -11,6 +11,7 @@ VibrantSheets는 브라우저에서 동작하는 Excel 스타일 스프레드시
 - 키보드 내비게이션(화살표, Enter, Tab, F2, Esc)
 - 범위 선택, Fill Handle, 고급 클립보드 붙여넣기
 - Fill Handle 고도화: 시리즈/복사, Alt 복사, 빈칸 스킵, 사용자 리스트
+- 엑셀 스타일 텍스트 넘침 표시(옆 셀이 비어있을 때만 overflow)
 
 ### 2.2 헤더 기반 선택
 - 열/행 헤더 클릭: 전체 선택
@@ -58,6 +59,9 @@ VibrantSheets는 브라우저에서 동작하는 Excel 스타일 스프레드시
 - `.xlsx`: ExcelJS 기반 import/export + 스타일 보존
 - `.csv`: 활성 시트만 저장 (확인 모달)
 - 병합/strikethrough/통화(KRW/USD) 라운드트립 보정
+- 이미지 포함 XLSX 로딩 안정화
+  - drawing 음수 오프셋 클램프
+  - 로딩 실패 시 drawing/vml 제거 후 재시도
 
 ### 2.10 인쇄 (Phase 12)
 - 인쇄 모달/프리뷰
@@ -107,7 +111,9 @@ VibrantSheets는 브라우저에서 동작하는 Excel 스타일 스프레드시
 
 #### 4.6 저장/불러오기
 - VSHT: 이미지 메타 + base64 저장
-- XLSX: 1차는 제외/스킵(로깅 또는 안내)
+- XLSX: 이미지 저장/불러오기 포함
+  - 로딩 실패 시 drawing/vml 제거 후 재시도(이미지 제외)
+  - 사용자 안내 메시지 제공
 
 #### 4.7 인쇄 대응
 - 인쇄용 DOM 생성 시 이미지 포함
