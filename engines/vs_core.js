@@ -72,6 +72,7 @@ class VibrantSheets {
         this.currentBorderType = 'all';
         this.borderStamp = 0;
         this.showPageBreakPreview = false;
+        this.autoSaveTimer = null;
 
         this.init();
     }
@@ -241,6 +242,7 @@ class VibrantSheets {
         this.updatePrintOrientationIndicator();
         this.updatePrintAreaToggleUI();
         this.updatePrintControlsState();
+        setTimeout(() => this.checkAndRestoreSession(), 100);
     }
 
     createOverlay(className) {
@@ -249,7 +251,7 @@ class VibrantSheets {
         div.style.display = 'none';
         this.container.appendChild(div);
         if (className === 'fill-preview') {
-            div.innerHTML = '<span class="fill-preview-label">?쒕━利?梨꾩슦湲?/span><span class="fill-preview-hint">Alt: 媛?蹂듭궗</span>';
+            div.innerHTML = '<span class="fill-preview-label">시리즈 채우기</span><span class="fill-preview-hint">Alt: 값 복사</span>';
         }
         return div;
     }
@@ -359,7 +361,7 @@ class VibrantSheets {
         this.renderImages();
     }
 
-    // ??? Utility ???????????????????????????????????????????
+    // --- Utility Methods -----------------------------------------------------------------------
     colToNumber(col) {
         let num = 0;
         for (let i = 0; i < col.length; i++) {
@@ -905,7 +907,7 @@ class VibrantSheets {
         if (cell) this.renderCellValue(cell);
     }
 
-    // ??? Grid Rendering ????????????????????????????????????
+    // --- Grid Rendering ------------------------------------------------------------------------
     renderGrid() {
         const table = document.createElement('table');
         table.className = 'spreadsheet-table';
@@ -1322,7 +1324,7 @@ class VibrantSheets {
         }
     }
 
-    // ??? Event Listeners ???????????????????????????????????
+    // --- Event Listeners -----------------------------------------------------------------------
     setupEventListeners() {
         const fillSkip = document.getElementById('fill-skip-blanks');
         if (fillSkip) {
@@ -1808,7 +1810,7 @@ class VibrantSheets {
         this.updatePageBreakPreview();
     }
 
-    // ??? Resize Handlers ?????????????????????????????????
+    // --- Resize Handlers -----------------------------------------------------------------------
     setupResizeHandlers() {
         const EDGE_ZONE = 5; // px from edge to trigger resize cursor
 
@@ -1978,7 +1980,7 @@ class VibrantSheets {
         }
     }
 
-    // ??? Cell Focus / Input ????????????????????????????????
+    // --- Cell Focus / Input -------------------------------------------------------------------
     handleCellFocus(cell) {
         const cellId = cell.dataset.id;
         const normalizedId = this.normalizeMergedCellId(cellId);
@@ -2044,7 +2046,7 @@ class VibrantSheets {
         }
     }
 
-    // ??? Styling ???????????????????????????????????????????
+    // --- Styling -------------------------------------------------------------------------------
     toggleStyle(prop, activeValue, defaultValue) {
         const targetIds = this.getSelectionTargetIds();
         if (targetIds.length === 0) return;
@@ -2400,6 +2402,7 @@ class VibrantSheets {
             badge.innerText = 'Edited';
             badge.className = 'status-badge modified';
         }
+        this.saveSession();
     }
 
     markClean() {
@@ -2415,6 +2418,7 @@ class VibrantSheets {
                 }
             }, 3000);
         }
+        this.clearSession();
     }
 
     updateFindResults() {
@@ -2455,7 +2459,7 @@ class VibrantSheets {
 
     // Find/Replace methods are loaded from engines/vs_find.js
 
-    // ??? Range Selection ???????????????????????????????????
+    // --- Range Selection -----------------------------------------------------------------------
     isNearResizeEdge(headerEl, e, type) {
         const EDGE_ZONE = 5;
         const rect = headerEl.getBoundingClientRect();
@@ -3009,7 +3013,7 @@ class VibrantSheets {
         this.fillHandle.style.top = `${rect.bottom - containerRect.top + this.container.scrollTop - 5}px`;
     }
 
-    // ??? Fill Handle Logic ?????????????????????????????????
+    // --- Fill Handle Logic --------------------------------------------------------------------
     handleFillStart(e) {
         const range = this.getEffectiveRange();
         if (!range) return;
@@ -4605,7 +4609,7 @@ class VibrantSheets {
         return '=' + out;
     }
 
-    // ??? Clipboard ?????????????????????????????????????????
+    // --- Clipboard -----------------------------------------------------------------------------
     copySelection() {
         const range = this.getEffectiveRange();
         if (!range) return;
@@ -4892,7 +4896,7 @@ class VibrantSheets {
         this.rangeOverlay.classList.add('cut-dashed');
     }
 
-    // ??? Keyboard Navigation ???????????????????????????????
+    // --- Keyboard Navigation -------------------------------------------------------------------
     handleKeyDown(e) {
         const activeCell = document.activeElement.closest('.cell');
         if (!activeCell || activeCell.classList.contains('header')) return;
@@ -5092,7 +5096,7 @@ class VibrantSheets {
         }
     }
 
-    // ??? Mode Handlers ?????????????????????????????????????
+    // --- Mode Handlers -------------------------------------------------------------------------
     enterEditMode(cell) {
         if (this.isEditing) return;
         const cellId = cell.dataset.id;
@@ -5258,7 +5262,7 @@ class VibrantSheets {
         }
     }
 
-    // ??? File Import / Export ???????????????????????????????
+    // --- File Import / Export ------------------------------------------------------------------
     // File Import / Export methods are loaded from engines/vs_io.js
     async openFileDialog() {
         return window.VSIO.openFileDialog(this);
@@ -6426,6 +6430,45 @@ class VibrantSheets {
         this.cellFormulas = newFormulas;
         this.cellBorders = newBorders;
         this.shiftMergedRanges(type, threshold, delta);
+    }
+
+    saveSession() {
+        if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
+        this.autoSaveTimer = setTimeout(() => {
+            try {
+                if (typeof window.VSIO !== 'undefined' && typeof window.VSIO.generateVSHTData === 'function') {
+                    const data = window.VSIO.generateVSHTData(this);
+                    localStorage.setItem('vibrant_sheets_autosave', JSON.stringify(data));
+                    console.log('Session auto-saved to localStorage.');
+                }
+            } catch (e) {
+                console.warn('Auto-save failed:', e);
+            }
+        }, 2000);
+    }
+
+    async checkAndRestoreSession() {
+        const saved = localStorage.getItem('vibrant_sheets_autosave');
+        if (saved) {
+            const proceed = await this.showConfirmAsync('이전에 저장되지 않은 작업이 있습니다. 복구할까요?\n(Unsaved work found. Restore session?)');
+            if (proceed) {
+                try {
+                    if (typeof window.VSIO !== 'undefined' && typeof window.VSIO.importVSHT === 'function') {
+                        window.VSIO.importVSHT(this, saved);
+                        this.markDirty();
+                    }
+                } catch (e) {
+                    console.error('Session restoration failed:', e);
+                    alert('세션 복구에 실패했습니다.');
+                }
+            } else {
+                this.clearSession();
+            }
+        }
+    }
+
+    clearSession() {
+        localStorage.removeItem('vibrant_sheets_autosave');
     }
 }
 
