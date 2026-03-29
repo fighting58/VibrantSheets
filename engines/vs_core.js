@@ -1,7 +1,7 @@
-﻿class VibrantSheets {
+class VibrantSheets {
     constructor() {
         this.baseRows = 50;
-        this.baseCols = 26; // A to Z
+        this.baseCols = 40; // A to AN
         this.baseColWidth = 64;
         this.baseRowHeight = 22;
         this.selectedCell = null;
@@ -612,12 +612,13 @@
         if (!text) {
             cell.classList.remove('cell-overflow');
             cell.style.removeProperty('--overflow-width');
+            cell.style.removeProperty('--overflow-left');
+            cell.style.removeProperty('--text-offset');
             return;
         }
 
         const style = this.cellStyles[cellId] || {};
         const align = style.textAlign || 'left';
-        if (align !== 'left') return;
 
         const parsed = this.parseCellId(cellId);
         if (!parsed) return;
@@ -632,18 +633,42 @@
             baseWidth += this.colWidths[c - 1] || this.baseColWidth;
         }
 
-        let extraWidth = 0;
-        for (let c = baseEndCol + 1; c <= this.cols; c++) {
-            if (this.isOverflowBlocked(c, row)) break;
-            extraWidth += this.colWidths[c - 1] || this.baseColWidth;
+        let totalWidth = baseWidth;
+        let offsetLeft = 0;
+        let textOffset = 0;
+
+        if (align === 'left') {
+            let extraWidth = 0;
+            for (let c = baseEndCol + 1; c <= this.cols; c++) {
+                if (this.isOverflowBlocked(c, row)) break;
+                extraWidth += this.colWidths[c - 1] || this.baseColWidth;
+            }
+            totalWidth += extraWidth;
+            offsetLeft = 0;
+        } else if (align === 'right') {
+            let extraWidth = 0;
+            for (let c = startCol - 1; c >= 1; c--) {
+                if (this.isOverflowBlocked(c, row)) break;
+                extraWidth += this.colWidths[c - 1] || this.baseColWidth;
+            }
+            totalWidth += extraWidth;
+            offsetLeft = -extraWidth;
         }
 
-        if (extraWidth > 0) {
+        if (totalWidth > baseWidth) {
             cell.classList.add('cell-overflow');
-            cell.style.setProperty('--overflow-width', `${baseWidth + extraWidth}px`);
+            cell.style.setProperty('--overflow-width', `${totalWidth}px`);
+            cell.style.setProperty('--overflow-left', `${offsetLeft}px`);
+            if (textOffset !== 0) {
+                cell.style.setProperty('--text-offset', `${textOffset}px`);
+            } else {
+                cell.style.removeProperty('--text-offset');
+            }
         } else {
             cell.classList.remove('cell-overflow');
             cell.style.removeProperty('--overflow-width');
+            cell.style.removeProperty('--overflow-left');
+            cell.style.removeProperty('--text-offset');
         }
     }
 

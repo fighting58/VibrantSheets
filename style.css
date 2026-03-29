@@ -20,6 +20,7 @@
     --formula-height: 32px;
     --title-height: 40px;
     --status-height: 26px;
+    --cell-padding: 4px;
 }
 
 * {
@@ -497,7 +498,7 @@ body {
 
 .cell {
     border: none;
-    padding: 0 4px;
+    padding: 0 var(--cell-padding);
     font-size: 11pt;
     overflow: hidden;
     white-space: nowrap;
@@ -511,8 +512,11 @@ body {
 }
 
 .cell .cell-text {
-    display: inline-block;
+    display: flex;
+    align-items: center;
     width: 100%;
+    height: 100%;
+    line-height: 22px; /* Standardize with baseRowHeight */
     overflow: hidden;
 }
 
@@ -523,8 +527,21 @@ body {
 }
 
 .cell.cell-overflow .cell-text {
-    width: var(--overflow-width, 100%);
+    width: calc(var(--overflow-width, 100%) - var(--cell-padding));
+    left: calc(var(--overflow-left, 0px) + var(--cell-padding));
+    position: absolute;
     pointer-events: none;
+    white-space: nowrap;
+    text-align: inherit;
+    display: flex;
+    align-items: center;
+    top: 0;
+    height: 100%;
+    transform: translateX(var(--text-offset, 0));
+}
+
+.cell.cell-overflow[style*="text-align: right"] .cell-text {
+    justify-content: flex-end;
 }
 
 .cell:focus {
@@ -1021,6 +1038,10 @@ body {
     }
     .cell {
         border-color: transparent !important;
+        box-shadow: none !important;
+    }
+    .col-header, .row-header {
+        display: none !important;
     }
     .print-hide {
         display: none !important;

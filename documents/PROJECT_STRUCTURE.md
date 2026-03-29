@@ -1,4 +1,4 @@
-﻿# Project Structure
+# Project Structure
 
 ## Overview
 VibrantSheets는 핵심 기능을 `engines/` 아래 모듈로 분리한 구조입니다.
@@ -13,10 +13,9 @@ VibrantSheets/
     vs_core.js
     vs_find.js
     vs_io.js
-  documents/
-    PROCESS.md
+  DOCUMENTS/
+    plan.md
     PROJECT_STRUCTURE.md
-    STATUS.md
     REGRESSION_CHECKLIST.md
     TROUBLESHOOTING.md
   index.html

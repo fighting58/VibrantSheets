@@ -1,4 +1,4 @@
-﻿# Troubleshooting Guide
+# Troubleshooting Guide
 
 This document lists critical bugs and technical debt encountered during the development of VibrantSheets, along with their root causes and permanent resolutions.
 
@@ -103,49 +103,48 @@ The `compositionstart` event was initially tried without "Overwrite" logic, lead
 ## 5. Thin Border Truncation by Grid Lines (Top / Left Border Missing)
 
 **Symptom:**  
-????뉗? ?ㅼ꽑 ?뚮몢由?1px Solid)瑜??곸슜???? ?꾩껜 ?뚮몢由щ? ?곸슜?섎뜑?쇰룄 ?꾩そ(Top)怨??쇱そ(Left) ?뚮몢由??좎씠 ?몄젒 ???湲곕낯 洹몃━???낆? ??`var(--grid-line)`)???섑빐 ?ъ슜?먭? 吏?뺥븳 ?뚮몢由щ줈 洹몃━吏 ?딄퀬 媛?ㅼ????꾩긽??愿李곕릺?덉뒿?덈떎.
+When a user applied a 1px solid thin border to a cell, the top and left borders were not visibly rendered or were truncated by the adjacent cells' default transparent grid lines (e.g., `var(--grid-line)`).
 
 **Root Cause:**  
-??釉뚮씪?곗???湲곕낯 ?쒓났 湲곕뒫??`border-collapse: collapse` ?뚯씠釉??띿꽦? ?몄젒????????뚮몢由?異⑸룎 ??怨좎쑀???곗꽑?쒖쐞 ?뚮뜑留??뚭퀬由ъ쬁???ъ슜?⑸땲??
-?뱁엳 Webkit 湲곕컲 釉뚮씪?곗?(Chrome/Edge)???쇱そ ????곗륫(`border-right`)怨??꾩そ ????섎떒(`border-bottom`) ?뚮몢由щ? 洹?????ㅻⅨ履?? 諛??꾨옒履??)??醫뚯륫(`border-left`), 理쒖긽??`border-top`) ?뚮몢由щ낫??????쾶 洹몃젮 ?곗꽑 ?곸슜(??뼱?곌린)??踰꾨━??援ъ“瑜?吏?숇땲?? 利? A2 ????꾩そ??1px 寃????뚮몢由щ? ?낇???諛붾줈 ?꾩뿉 留욌떯? A1 ? ?꾨옯遺遺꾩뿉 議댁옱?섎뒗 1px ?щ챸 洹몃━???좊텇???섑빐 寃? ?뚮몢由ш? 媛?ㅼ쭊 寃껋엯?덈떎.
+The browser's native `border-collapse: collapse` table property features a specific layout algorithm to resolve adjacent border conflicts. Specifically in Webkit-based browsers (Chrome/Edge), the bottom/right borders of an adjacent top/left cell tend to override the target cell's top/left borders. For instance, the transparent bottom border of cell A1 overrides the solid top border of cell A2.
 
 **Permanent Resolution:**  
-- Webkit??怨좎쭏???뱀꽦????씠?⑺븯??**?묐갑???숆린???뚮뜑留?Mirror Rendering) ?쒖뒪??*??媛쒕컻???꾩엯?덉뒿?덈떎.
-- ?뚮몢由щ? ?곸슜?????붾㈃??洹몃━??`renderBorders(cell)` ?④퀎?먯꽌, ?꾩옱 ?됯? 以묒씤 ?대떦 ????뚮몢由??뺣낫肉??꾨땲??**留욌떯???덈뒗 ?몄젒??????뚮몢由??곗씠?곌퉴吏 ?묐갑?μ쑝濡??숈떆 ?됯? 諛??섏쭛**?⑸땲??
-- 留뚯빟 ?꾩옱 ??대굹 留욌떯? 諛섎???? 以??대뒓 ??履쎌뿉?쇰룄 ?뚮몢由ш? ?ㅼ젙?섏뼱 ?덈떎硫? **?묒そ ???留덉＜蹂대뒗 蹂 紐⑤몢???대떦 ?뚮몢由?CSS(`!important` 泥섎━)瑜?諛쒕씪踰꾨┰?덈떎.** (?? A2 ?꾩そ??洹몃젮吏???A1 ?꾨옒履쎌뿉???숈떆???숈씪???뚮몢由щ? 遺??
-- 寃곌낵?곸쑝濡?釉뚮씪?곗? ?뚮뜑留??붿쭊????以??대뒓 諛⑺뼢???뚮몢由щ? ?곗꽑?섎뱺 愿怨꾩뾾?? ?곸슜?섎젮???ъ슜???뚮몢由ш? 100% ?숈씪???곹깭濡?洹몃젮???꾨꼍???몄텧?섎룄濡??뚮뜑留??뚯씠?꾨씪???고쉶瑜??ъ꽦?덉뒿?덈떎.
+- Developed a "Bidirectional Mirror Rendering" system to counteract Webkit's rendering quirks.
+- When applying borders in the grid rendering phase, the `renderBorders(cell)` logic collects and renders not only the cell's own border state but also the adjacent cells' boundaries.
+- If a border is specified on a boundary, the CSS `!important` rule is applied symmetrically to both the target cell and its neighboring cell (e.g. applying the targeted border to both A2's top and A1's bottom).
+- Re-rendering both edges identically forces the browser's resolving algorithm to use the user's selected style seamlessly, ensuring a 100% thick, visible border representation.
 
 ---
 
 ## 6. Multi-Row/Column Deletion Data Retention Bug
 
 **Symptom:**  
-?ъ슜?먭? ?????ㅻ뜑瑜??쒕옒洹명븯???щ윭 ?됱씠???댁쓣 ?숈떆???좏깮??????젣(Delete Row/Col)瑜??ㅽ뻾?대룄 ?곷떒???곗씠?곌? ?꾨옒濡?諛????뼱?⑥?湲곕쭔 ??肉? ?ㅼ쭏?곸씤 ?대떦 ?곸뿭???곗씠?곗? ?쒖떇???꾩쟾??吏?뚯?吏 ?딄퀬 ?붾㈃ 諛??대? ?곹깭(state)???붾쪟?섎뒗 ?꾩긽??諛쒖깮?덉뒿?덈떎.
+When a user selected multiple column/row headers and executed a deletion (Delete Row/Col), the lower data shifted upwards to fill the gap visually, but the underlying data, formulas, and styles in the originally deleted area were not fully wiped from the internal state, causing visual and state corruption.
 
 **Root Cause:**  
-?대? ?붿쭊??`shiftData` 硫붿꽌?쒕뒗 ?쎌엯 ??Down/Right Shift)?먮뒗 醫뚰몴瑜?諛?대궡????븷(`coord >= threshold ? coord + delta : coord`)?????섑뻾?섏?留? **??젣 ???뚯닔 ?명?) ?뱀젙 ??젣 ???援ш컙(`threshold + delta` 遺??`threshold - 1` 源뚯?) ?덉뿉 ?덈뒗 湲곗〈 ?곗씠?곕? 硫붾え由ъ뿉??紐낆떆?곸쑝濡??먭린?섎뒗 濡쒖쭅???꾨씫**?섏뼱 ?덉뿀?듬땲?? ?대줈 ?명빐 ?대룞 議곌굔???대떦?섏? ?딅뒗 ??젣 援ш컙 ?곗씠?곕뱾??洹몃?濡??좉퇋 ?곹깭(new state) 媛앹껜濡?蹂듭궗-?닿??섍퀬 留먯븯?듬땲??
+The internal data-shifting method `shiftData` safely handled moving coordinates (downwards/rightwards shift via `coord >= threshold ? coord + delta : coord`). However, during a destructive operation (negative delta), the code failed to explicitly wipe the memory for the cells within the deletion range (between `threshold + delta` and `threshold - 1`). Consequently, the deleted data remained untouched and was simply copied over as a new state iteration.
 
 **Permanent Resolution:**  
-- `shiftData` ?댁쓽 醫뚰몴 怨꾩궛 ?ы띁 ?⑥닔 `shiftCoord`瑜??낃렇?덉씠?쒗뻽?듬땲??
-- ?대룞 ?명?媛 ?뚯닔(`d < 0`)?????뚭린?섏뼱????醫뚰몴 踰붿쐞(`coord >= t + d && coord < t`)瑜?媛먯??섎㈃ **?좏슚?섏? ?딆? 醫뚰몴??`-1`??諛섑솚**?섎룄濡?諛⑹뼱 肄붾뱶瑜??묒꽦?덉뒿?덈떎.
-- ?섏쐞 移섑솚 猷⑦봽?먯꽌 ??醫뚰몴媛 0蹂대떎 ????`nRow > 0 && nColNum > 0`)留???媛앹껜 留듭뿉 ?깅줉?섎?濡? ??젣 ???援ш컙 ?댁쓽 紐⑤뱺 ?곗씠??媛? ?쒖떇, ?섏떇, ?뚮몢由?媛 源붾걫?섍쾶 利앸컻?섏뿬 ?щ컮瑜???젣 ?숈옉???꾩닔?⑸땲??
+- Upgraded the inner coordinate calculation helper `shiftCoord`.
+- When detecting a destructive shifting operation (`d < 0`), it now actively identifies and evaluates the deletion coordinate range (`coord >= t + d && coord < t`), explicitly returning `-1` for invalid boundaries.
+- The state replacement loops now skip updating indices that yield `-1` and rigorously delete all associated inner properties (data, formulas, styles, borders), ensuring the chunk vanishes perfectly.
 
 ---
 
-## 7. IME (Korean) First Character Loss ("r?? Issue)
+## 7. IME (Korean) First Character Loss ("r" Issue)
 
 **Symptom:**  
-?뷀꽣 ?ㅻ? ?뚮윭 ?ㅼ쓬 ?濡??대룞??吏곹썑, "媛"瑜??낅젰?섎㈃ ???"r??泥섎읆 ?먯쓬??遺꾨━?섍굅??泥??嫄댁씠 ?곷Ц?쇰줈 諛뺥엳???꾩긽??諛쒖깮?덉뒿?덈떎. ?대뒗 IME 湲고솕(Composition) ?쒖옉 ?쒖젏??釉뚮씪?곗????몄쭛 紐⑤뱶 ?꾪솚 ?띾룄? ?뉕컝??諛쒖깮?섎뒗 ?꾪삎?곸씤 ?ъ빱???덉씠??而⑤뵒?섏엯?덈떎.
+Immediately after pressing Enter to move the cell focus, if a user typed a Korean character like "가", the first consonant would detach (e.g. "r") or the entire set would remain uncombined english characters. This was a race condition arising from the gap between the window's composition startup and the application switching to edit mode.
 
 **Root Cause:**  
-1.  湲곗〈 濡쒖쭅? `keydown` ?대깽?몄뿉??吏곸젒 `activeCell.innerText = ''`濡????鍮꾩슦怨?`isEditing` ?곹깭濡??꾪솚?덉뒿?덈떎.
-2.  ???섎룞 鍮꾩슦湲?怨쇱젙?먯꽌 釉뚮씪?곗????꾩옱???낅젰 而⑦뀓?ㅽ듃(Composition Context)媛 ?뚭눼?섏뿀?ㅺ퀬 ?먮떒?섏뿬, ?쒓? ?낅젰 ?붿쭊???딆뼱踰꾨━怨?泥?湲?먮? ?곷Ц 洹몃?濡??쎌엯?섍쾶 ?⑸땲??
-3.  洹??댄썑???낅젰遺???ㅼ떆 IME媛 ?묐룞?섎㈃???쒓? 議고빀???쒖옉?섎?濡?"r" + "??媛 ?섎뒗 寃곌낵媛 ?섑??⑸땲??
+1. The old mechanism manually cleared out the cell value via `activeCell.innerText = ''` inside the `keydown` event to transition to the `isEditing` mode.
+2. During this manual clearing phase, the browser recognized that its ongoing "Composition Context" for the typed character was destroyed, failing to assemble the combined character and keeping the raw english input (e.g. "r").
+3. By the time the IME engine restarted in the input field, the composition flow was broken.
 
 **Permanent Resolution:**  
-- **?ъ빱?????꾩껜 ?좏깮 (Select All Strategy)**: `handleCellFocus`?먯꽌 ????ъ빱?ㅻ? 諛쏅뒗 利됱떆 `window.getSelection()`???듯빐 ???紐⑤뱺 ?댁슜???좏깮(Select All)?섎룄濡??덉씠?꾩썐 ?붿쭊???섏젙?덉뒿?덈떎.
-- **?섎룞 鍮꾩슦湲?諛⑹?**: `handleKeyDown` 諛?`handleCompositionStart`?먯꽌 吏곸젒 `innerText = ''`瑜?紐낆떆?곸쑝濡??몄텧?섎뒗 ??? 湲곗〈 ?댁슜???좏깮???곹깭濡??〓땲??
-- **?ㅼ씠?곕툕 ??뼱?곌린 ?좊룄**: ???곹깭?먯꽌 ?ㅻ낫???낅젰???쒖옉?섎㈃, 釉뚮씪?곗???'?좏깮???곸뿭???낅젰媛믪쑝濡??泥??섎뒗 ?ㅼ씠?곕툕 ?숈옉???섑뻾?⑸땲?? ??怨쇱젙?먯꽌 IME ?붿쭊???먮쫫??源⑥?吏 ?딄퀬 ?먯뿰?ㅻ읇寃??꾩껜 ?댁슜???쒓?濡???뼱?뚯썙吏寃??섏뼱, 泥?湲?먮????꾨꼍??議고빀??蹂댁옣?⑸땲??
+- **Select-All Strategy:** Within `handleCellFocus`, whenever a cell receives focus, the system immediately leverages `window.getSelection()` to establish a 'Select-All' state across the cell's contents.
+- **Prevent Manual Clearing:** Explicit assignments like `innerText = ''` in `handleKeyDown` and `handleCompositionStart` were completely removed to respect existing selected text states.
+- **Native Overwrite:** When typing begins on a fully selected cell, the browser utilizes its native "overwrite" interaction to replace the selection block. This preserves the IME composition seamlessly, ensuring the first CJK characters combine correctly.
 
 ## 10. Merged Cell Border Style Not Updating (Dot/Dash Overridden by Thin Solid)
 
@@ -211,3 +210,43 @@ The thin-border mirror rendering (added to avoid border-collapse loss) persisted
   - Remove drawing/vml relationships from `xl/worksheets/_rels/*.rels`
   - Remove `<drawing/>` and `<legacyDrawing/>` tags from worksheet XML
 - Show an explicit user-facing warning when images are excluded.
+
+---
+
+## 14. Excel "Repaired" Message on Open
+
+**Symptom:**  
+Excel warns that the file was repaired and references `/xl/styles.xml`.
+
+**Root Cause:**  
+Invalid currency `numFmt` string emitted in export (`"₩#,##0...` malformed quote boundary).
+
+**Permanent Resolution:**  
+- Use valid format code generation (`"₩"#,##0...`) and apply consistently across export paths.
+
+---
+
+## 15. Currency Unit Changed After Round-Trip
+
+**Symptom:**  
+USD cells became KRW after import -> export.
+
+**Root Cause:**  
+Internal format model did not preserve currency code, only `type/decimals`.
+
+**Permanent Resolution:**  
+- Persist `currency` in internal format (`KRW`/`USD`).
+- Detect from incoming `numFmt` and write back same currency symbol on export.
+
+---
+
+## 16. Print Preview Included Editor Artifacts / Blank Extra Page
+
+**Symptom:**  
+Selection tint or non-printable grid artifacts appeared; sometimes an empty second page was generated.
+
+**Root Cause:**  
+Print composition included editor-only layers and over-broad effective range.
+
+**Permanent Resolution:**  
+- Restrict print content to actual printable range and exclude editor overlays/helpers.
