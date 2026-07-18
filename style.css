@@ -165,11 +165,23 @@ body {
 
 .ribbon-content {
     height: auto;
-    min-height: 70px;
+    min-height: 85px; /* Increased to account for group labels comfortably */
     display: flex;
     align-items: stretch;
     gap: 0;
     padding: 6px 0;
+    overflow-x: auto;
+}
+
+.tab-pane {
+    display: none;
+    align-items: stretch;
+    gap: 0;
+    min-width: 100%;
+}
+
+.tab-pane.active {
+    display: flex;
 }
 
 .group {
@@ -328,25 +340,61 @@ body {
     background-color: var(--border-color);
 }
 
-.color-picker-wrapper input[type="color"] {
-    -webkit-appearance: none;
-    appearance: none;
-    border: none;
+.color-swatch-preview {
     width: 18px;
     height: 8px;
-    cursor: pointer;
-    padding: 0;
     border-radius: 2px;
-    background: none;
-}
-
-.color-picker-wrapper input[type="color"]::-webkit-color-swatch-wrapper {
-    padding: 0;
-}
-
-.color-picker-wrapper input[type="color"]::-webkit-color-swatch {
     border: 1px solid rgba(255,255,255,0.2);
-    border-radius: 2px;
+    pointer-events: none;
+}
+
+.color-palette-popover {
+    position: fixed;
+    background: #0f172a;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px;
+    display: none;
+    z-index: 3000;
+    width: 150px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+}
+
+.color-palette-popover .swatches-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.color-palette-popover .swatch {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.1);
+    transition: transform 0.1s ease;
+}
+
+.color-palette-popover .swatch:hover {
+    transform: scale(1.15);
+    border-color: rgba(255,255,255,0.4);
+}
+
+.color-palette-popover .custom-color-btn {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    text-align: center;
+    padding: 6px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.color-palette-popover .custom-color-btn:hover {
+    background: rgba(56, 189, 248, 0.12);
 }
 
 /* Formula Bar */
@@ -489,6 +537,40 @@ body {
     margin: 6px 4px;
 }
 
+.header-context-menu {
+    position: fixed;
+    background: #0f172a;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 6px;
+    display: none;
+    z-index: 3000;
+    min-width: 160px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+}
+
+.header-context-menu button {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    text-align: left;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.header-context-menu button:hover {
+    background: rgba(56, 189, 248, 0.12);
+}
+
+.header-context-menu .menu-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: 6px 4px;
+}
+
 .spreadsheet-table {
     border-collapse: collapse;
     table-layout: fixed;
@@ -542,6 +624,22 @@ body {
 
 .cell.cell-overflow[style*="text-align: right"] .cell-text {
     justify-content: flex-end;
+}
+
+.cell.cell-overflow[style*="text-align: center"] .cell-text {
+    justify-content: center;
+}
+
+.cell[style*="text-align: center"] .cell-text {
+    justify-content: center;
+}
+
+.cell[style*="text-align: right"] .cell-text {
+    justify-content: flex-end;
+}
+
+.cell[style*="text-align: left"] .cell-text {
+    justify-content: flex-start;
 }
 
 .cell:focus {
@@ -1307,4 +1405,501 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-secondary);
+}
+
+/* --- Print Modal -------------------------------------------------------------------------- */
+.print-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.print-modal-card {
+    background: var(--surface-color);
+    width: 900px;
+    max-width: 95vw;
+    height: 700px;
+    max-height: 90vh;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+}
+
+.print-modal-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.print-modal-body {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+}
+
+.print-form {
+    width: 320px;
+    padding: 24px;
+    border-right: 1px solid var(--border-color);
+    overflow-y: auto;
+}
+
+.print-preview {
+    flex: 1;
+    background: #1e1e1e;
+    padding: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.print-preview-page {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.print-preview-title {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.print-preview-sheet {
+    background: #e2e8f0;
+    width: 100%;
+    height: 100%;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
+    position: relative;
+    overflow: hidden; /* Canvas container */
+}
+
+.print-preview-canvas {
+    position: absolute;
+    inset: 0;
+    background: #eee;
+}
+
+.print-preview-grid {
+    position: absolute;
+    background: white;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+
+.preview-cell {
+    position: absolute;
+    border: 0.5px solid #ddd;
+    font-size: 2px; /* Very small for mini-preview */
+    display: flex;
+    align-items: center;
+    padding: 0 1px;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.print-preview-break-v, .print-preview-break-h {
+    position: absolute;
+    background: rgba(56, 189, 248, 0.4);
+    pointer-events: none;
+}
+.print-preview-break-v { width: 1px; z-index: 10; }
+.print-preview-break-h { height: 1px; z-index: 10; }
+
+.print-preview-pages {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    pointer-events: none;
+}
+
+.print-preview-page-tile {
+    border: 1px dashed rgba(56, 189, 248, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: rgba(56, 189, 248, 0.5);
+    position: relative;
+}
+
+.print-section {
+    margin-bottom: 24px;
+}
+
+.print-label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.print-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    font-size: 0.85rem;
+}
+
+.print-input {
+    background: var(--input-bg, rgba(255, 255, 255, 0.05));
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    outline: none;
+}
+
+.print-input:focus {
+    border-color: var(--accent-color);
+}
+
+.print-input.num {
+    width: 60px;
+    text-align: right;
+}
+
+.print-btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+}
+
+.print-btn.primary {
+    background: var(--accent-color);
+    color: var(--bg-color);
+}
+
+.print-btn.ghost {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+}
+
+.print-modal-footer {
+    padding: 16px 24px;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+/* --- Print Styles ------------------------------------------------------------------------- */
+@media print {
+    body, html {
+        height: auto;
+        overflow: visible;
+        background: white !important;
+        color: black !important;
+    }
+
+    #app, .ribbon, .formula-bar, .sheet-tabs, .status-bar, .title-bar, .print-modal, #grid-container {
+        display: none !important;
+    }
+
+    .vs-print-pages {
+        display: block !important;
+        position: static;
+        width: 100%;
+        background: white !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    .vs-print-page {
+        display: flex !important;
+        flex-direction: column;
+        page-break-after: always;
+        break-after: page;
+        background: white !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+    }
+
+    .print-hide {
+        display: none !important;
+    }
+
+    .print-empty {
+        background-color: transparent !important;
+        border-color: #ddd !important;
+        color: transparent !important;
+    }
+
+    .vs-print-page-clone .cell {
+        color: black !important;
+        background-color: transparent !important; /* Allow custom colors if explicitly set, but default to white/transparent */
+        border-color: #ccc !important;
+    }
+    
+    .vs-print-page-clone .cell.header {
+        display: none !important; /* Double ensure headers are gone */
+    }
+
+    /* Print utility to force background colors in browsers */
+    * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+}
+
+/* Print UI (Visible only during preview or in the DOM for buildup) */
+.vs-print-pages {
+    display: none;
+    background: #525659;
+}
+
+.custom-print-active .vs-print-pages {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 10000;
+}
+
+.vs-print-page {
+    box-sizing: border-box;
+    background: white;
+    margin: 20px auto;
+    box-shadow: 0 0 10px rgba(0,0,0,0.5);
+    display: flex;
+    flex-direction: column;
+}
+
+.vs-print-page-header, .vs-print-page-footer-lite {
+    height: 15mm;
+    padding: 5mm;
+    font-size: 10pt;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #666;
+}
+
+.print-icon-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.print-icon-btn:hover {
+    color: var(--accent-color);
+}
+
+.vs-print-page-viewport {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+    background: white;
+}
+
+.vs-print-page-scale {
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+.vs-print-page-clone {
+    table-layout: fixed;
+    border-collapse: collapse;
+}
+
+.vs-print-image-layer {
+    position: absolute;
+    pointer-events: none;
+}
+
+.vs-print-image-layer img {
+    position: absolute;
+}
+
+/* Screen Print Preview Matching Styles */
+.vs-print-page.preview-mode .print-hide {
+    display: none !important;
+}
+
+.vs-print-page.preview-mode .print-empty {
+    background-color: transparent !important;
+    border-color: #ddd !important;
+    color: transparent !important;
+}
+
+.vs-print-page.preview-mode .vs-print-page-clone .cell {
+    color: black !important;
+    background-color: transparent !important;
+    border-color: #ccc !important;
+}
+
+.vs-print-page.preview-mode .vs-print-page-clone .cell.header {
+    display: none !important;
+}
+
+/* Segmented Control */
+.segmented-control {
+    display: flex;
+    background: #0f172a;
+    border: 1px solid var(--border-color, #3a3f55);
+    border-radius: 8px;
+    overflow: hidden;
+    width: 100%;
+}
+
+.segmented-control input[type="radio"] {
+    display: none !important;
+}
+
+.segmented-control label {
+    flex: 1;
+    text-align: center;
+    padding: 8px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary, #94a3b8);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border-right: 1px solid var(--border-color, #3a3f55);
+    margin: 0 !important;
+    user-select: none;
+}
+
+.segmented-control label:last-of-type {
+    border-right: none;
+}
+
+.segmented-control input[type="radio"]:checked + label {
+    background: var(--accent-color, #38bdf8);
+    color: #000 !important;
+    font-weight: 600;
+}
+
+/* Margins Layout Diagram */
+.margins-layout {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    margin: 12px 0;
+    width: 100%;
+}
+
+.margin-top, .margin-bottom {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 70px;
+}
+
+.margin-middle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    width: 100%;
+}
+
+.margin-left, .margin-right {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 70px;
+}
+
+.margin-page-box {
+    width: 50px;
+    height: 65px;
+    border: 1.5px dashed var(--border-color, #3a3f55);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.margins-layout label {
+    font-size: 10px;
+    color: var(--text-secondary, #94a3b8);
+    margin-bottom: 2px;
+}
+
+.margins-layout input {
+    text-align: center;
+    width: 55px !important;
+    padding: 4px 6px !important;
+    background: #0b0f19 !important;
+}
+
+/* Print Preview Navigation */
+.print-preview-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 16px;
+    background: #0f172a;
+    padding: 8px 16px;
+    border-radius: 20px;
+    border: 1px solid var(--border-color, #3a3f55);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.print-btn-nav {
+    background: transparent;
+    border: none;
+    color: var(--text-primary, #e0e6f0);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.print-btn-nav:hover:not(:disabled) {
+    background: rgba(56, 189, 248, 0.15);
+    color: var(--accent-color, #38bdf8);
+}
+
+.print-btn-nav:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+#txt-preview-page-index {
+    font-size: 12px;
+    color: var(--text-secondary, #94a3b8);
+    min-width: 80px;
+    text-align: center;
+    font-weight: 500;
 }

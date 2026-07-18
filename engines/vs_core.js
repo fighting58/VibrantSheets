@@ -11,7 +11,7 @@ class VibrantSheets {
         this.originalValue = ""; // Backup for Esc key (cancel edit)
         this.needsOverwrite = false; // Enter mode overwrite flag
         this.isComposing = false; // IME composition state
-        
+
         // Range selection state
         this.selectionRange = null; // { startCol, startRow, endCol, endRow }
         this.isSelecting = false;
@@ -40,7 +40,7 @@ class VibrantSheets {
         this.resizeIndex = -1;
         this.resizeStartPos = 0;
         this.resizeStartSize = 0;
-        
+
         // Image insertion state
         this.imageLayer = null;
         this.activeImageId = null;
@@ -49,6 +49,8 @@ class VibrantSheets {
         this.imageDragState = null;
         this.imageContextMenu = null;
         this.imageContextTargetId = null;
+        this.headerContextMenu = null;
+        this.currentPrintPreviewPage = 1;
         this.rowHeaderWidth = 40;
 
         this.sheets = [this.createSheet('Sheet1')];
@@ -66,7 +68,7 @@ class VibrantSheets {
         this.sheetClickTimer = null;
         this.formulaEngine = typeof FormulaEngine !== 'undefined' ? new FormulaEngine() : null;
         this.formulaCache = new Map();
-        
+
         // Border selection state
         this.currentBorderStyle = 'solid-1';
         this.currentBorderType = 'all';
@@ -222,14 +224,14 @@ class VibrantSheets {
         this.formulaInput = document.getElementById('formula-input');
         this.cellAddress = document.getElementById('selected-cell-id');
         this.sheetTabs = document.querySelector('.sheet-tabs');
-        
+
         // Create Selection & Resize Visuals
         this.selectionOverlay = this.createOverlay('selection-overlay');
         this.rangeOverlay = this.createOverlay('range-overlay');
-        
+
         this.fillHandle = this.createOverlay('fill-handle');
         this.fillHandle.addEventListener('mousedown', (e) => this.handleFillStart(e));
-        
+
         this.resizeGuide = this.createOverlay('resize-guide');
         this.fillPreview = this.createOverlay('fill-preview');
         this.pageBreakOverlay = this.createOverlay('page-break-overlay');
@@ -545,7 +547,7 @@ class VibrantSheets {
         if (!raw) return '';
 
         const format = this.getCellFormat(cellId);
-        
+
         // Text format returns raw string immediately
         if (format.type === 'text') {
             return raw;
@@ -602,6 +604,16 @@ class VibrantSheets {
         const span = document.createElement('span');
         span.className = 'cell-text';
         span.textContent = formatted;
+
+        const style = this.cellStyles[cellId] || {};
+        if (style.textAlign === 'center') {
+            span.style.justifyContent = 'center';
+        } else if (style.textAlign === 'right') {
+            span.style.justifyContent = 'flex-end';
+        } else if (style.textAlign === 'left') {
+            span.style.justifyContent = 'flex-start';
+        }
+
         cell.appendChild(span);
         this.applyOverflowForCell(cell, formatted);
     }
@@ -925,7 +937,7 @@ class VibrantSheets {
         }
         table.appendChild(colgroup);
         this.colgroup = colgroup;
-        
+
         // Header Row (A, B, C...)
         const headerRow = document.createElement('tr');
         const emptyHeader = document.createElement('th');
@@ -937,7 +949,7 @@ class VibrantSheets {
             this.headerSelectionAnchor = null;
         });
         headerRow.appendChild(emptyHeader);
-        
+
         for (let j = 0; j < this.cols; j++) {
             const th = document.createElement('th');
             th.className = 'cell header col-header';
@@ -945,15 +957,16 @@ class VibrantSheets {
             th.dataset.colIndex = j;
             th.addEventListener('mousedown', (e) => this.handleHeaderMouseDown('col', j + 1, e));
             th.addEventListener('mouseover', () => this.handleHeaderMouseOver('col', j + 1));
+            th.addEventListener('contextmenu', (e) => this.handleHeaderContextMenu('col', j + 1, e));
             headerRow.appendChild(th);
         }
         table.appendChild(headerRow);
-        
+
         // Data Rows
         this.tbody = document.createElement('tbody');
         table.appendChild(this.tbody);
         this.createRowElements(1, this.rows);
-        
+
         this.container.appendChild(table);
         this.applyMergesToGrid();
         this.ensureImageLayer();
@@ -966,15 +979,16 @@ class VibrantSheets {
             const tr = document.createElement('tr');
             tr.style.height = `${this.rowHeights[i]}px`;
             tr.dataset.rowIndex = String(i);
-            
+
             const rowHeader = document.createElement('td');
             rowHeader.className = 'cell header row-header';
             rowHeader.innerText = i;
             rowHeader.dataset.rowIndex = i;
             rowHeader.addEventListener('mousedown', (e) => this.handleHeaderMouseDown('row', i, e));
             rowHeader.addEventListener('mouseover', () => this.handleHeaderMouseOver('row', i));
+            rowHeader.addEventListener('contextmenu', (e) => this.handleHeaderContextMenu('row', i, e));
             tr.appendChild(rowHeader);
-            
+
             for (let j = 0; j < this.cols; j++) {
                 const td = document.createElement('td');
                 td.className = 'cell';
@@ -982,9 +996,9 @@ class VibrantSheets {
                 td.tabIndex = 0; // Make focusable for keyboard events in Ready mode
                 const cellId = `${this.numberToCol(j + 1)}${i}`;
                 td.dataset.id = cellId;
-                
+
                 this.renderCellValue(td);
-                
+
                 td.addEventListener('focus', () => this.handleCellFocus(td));
                 td.addEventListener('input', () => this.handleCellInput(td));
                 td.addEventListener('compositionstart', () => this.handleCompositionStart(td));
@@ -993,7 +1007,7 @@ class VibrantSheets {
                 td.addEventListener('keydown', (e) => this.handleKeyDown(e));
                 td.addEventListener('mousedown', (e) => this.handleCellMouseDown(td, e));
                 td.addEventListener('dblclick', (e) => this.enterEditMode(td));
-                
+
                 this.renderStyles(td);
                 tr.appendChild(td);
             }
@@ -1099,6 +1113,256 @@ class VibrantSheets {
         if (!this.imageContextMenu) return;
         this.imageContextMenu.style.display = 'none';
         this.imageContextTargetId = null;
+        this.hideColorPalettePopover();
+    }
+
+    bindColorPalettePopover() {
+        this.colorPalettePopover = document.getElementById('color-palette-popover');
+        if (!this.colorPalettePopover) return;
+
+        const wrapperText = document.getElementById('wrapper-text-color');
+        const wrapperBg = document.getElementById('wrapper-bg-color');
+
+        if (wrapperText) {
+            wrapperText.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.showColorPalettePopover('color', wrapperText);
+            });
+        }
+
+        if (wrapperBg) {
+            wrapperBg.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.showColorPalettePopover('backgroundColor', wrapperBg);
+            });
+        }
+
+        // Handle clicking on swatches in the popover
+        const swatches = this.colorPalettePopover.querySelectorAll('.swatch');
+        swatches.forEach(swatch => {
+            swatch.addEventListener('click', (e) => {
+                const color = swatch.style.backgroundColor;
+                const targetType = this.colorPalettePopover.dataset.targetType;
+                
+                // Convert rgb/rgba format back to hex
+                let hexColor = color;
+                if (color.startsWith('rgb')) {
+                    const rgb = color.match(/\d+/g).map(Number);
+                    hexColor = '#' + rgb.map(x => {
+                        const hex = x.toString(16);
+                        return hex.length === 1 ? '0' + hex : hex;
+                    }).join('');
+                }
+
+                if (targetType === 'color') {
+                    const input = document.getElementById('text-color');
+                    input.value = hexColor;
+                    input.dispatchEvent(new Event('input'));
+                } else if (targetType === 'backgroundColor') {
+                    const input = document.getElementById('bg-color');
+                    input.value = hexColor;
+                    input.dispatchEvent(new Event('input'));
+                }
+
+                this.hideColorPalettePopover();
+            });
+        });
+
+        // Handle clicking "Custom Color..." button
+        const customColorBtn = document.getElementById('btn-custom-color');
+        if (customColorBtn) {
+            customColorBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const targetType = this.colorPalettePopover.dataset.targetType;
+                this.hideColorPalettePopover();
+
+                if (targetType === 'color') {
+                    document.getElementById('text-color').click();
+                } else if (targetType === 'backgroundColor') {
+                    document.getElementById('bg-color').click();
+                }
+            });
+        }
+
+        // Hide popover on global clicks / scrolls
+        document.addEventListener('click', () => this.hideColorPalettePopover());
+        window.addEventListener('scroll', () => this.hideColorPalettePopover());
+    }
+
+    showColorPalettePopover(targetType, triggerEl) {
+        if (!this.colorPalettePopover) return;
+
+        // Hide other context menus
+        this.hideImageContextMenu();
+        this.hideHeaderContextMenu();
+
+        this.colorPalettePopover.dataset.targetType = targetType;
+        this.colorPalettePopover.style.display = 'block';
+
+        const rect = triggerEl.getBoundingClientRect();
+        const pad = 8;
+        const x = Math.min(window.innerWidth - this.colorPalettePopover.offsetWidth - pad, rect.left);
+        const y = rect.bottom + pad;
+        
+        this.colorPalettePopover.style.left = `${Math.max(pad, x)}px`;
+        this.colorPalettePopover.style.top = `${y}px`;
+    }
+
+    hideColorPalettePopover() {
+        if (!this.colorPalettePopover) return;
+        this.colorPalettePopover.style.display = 'none';
+    }
+
+    bindHeaderContextMenu() {
+        this.headerContextMenu = document.getElementById('header-context-menu');
+        if (!this.headerContextMenu) return;
+        this.headerContextMenu.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-action]');
+            if (!btn) return;
+            const action = btn.dataset.action;
+            const type = this.headerContextMenu.dataset.type; // 'row' | 'col'
+            if (action === 'insert') {
+                if (type === 'row') {
+                    this.insertRow();
+                } else if (type === 'col') {
+                    this.insertColumn();
+                }
+            } else if (action === 'delete') {
+                if (type === 'row') {
+                    this.deleteRow();
+                } else if (type === 'col') {
+                    this.deleteColumn();
+                }
+            } else if (action === 'resize') {
+                if (type === 'row') {
+                    this.resizeSelectedRowsPrompt();
+                } else if (type === 'col') {
+                    this.resizeSelectedColsPrompt();
+                }
+            }
+            this.hideHeaderContextMenu();
+        });
+        document.addEventListener('click', () => this.hideHeaderContextMenu());
+        window.addEventListener('scroll', () => this.hideHeaderContextMenu());
+    }
+
+    resizeSelectedRowsPrompt() {
+        const range = this.getEffectiveRange();
+        if (!range) return;
+        const defaultHeight = this.rowHeights[range.startRow] || this.baseRowHeight;
+        this.showPrompt("행 높이를 지정하세요 (단위: px)", defaultHeight, (val) => {
+            const parsed = parseInt(val, 10);
+            if (isNaN(parsed) || parsed < 5) return; // Min height 5
+            
+            for (let i = range.startRow; i <= range.endRow; i++) {
+                this.rowHeights[i] = parsed;
+                const tr = this.table.querySelectorAll('tr')[i];
+                if (tr) tr.style.height = `${parsed}px`;
+            }
+            this.updateRangeVisual();
+            this.updateFillHandlePosition();
+            this.markDirty();
+        });
+    }
+
+    resizeSelectedColsPrompt() {
+        const range = this.getEffectiveRange();
+        if (!range) return;
+        const defaultWidth = this.colWidths[range.startCol - 1] || this.baseColWidth;
+        this.showPrompt("열 너비를 지정하세요 (단위: px)", defaultWidth, (val) => {
+            const parsed = parseInt(val, 10);
+            if (isNaN(parsed) || parsed < 5) return; // Min width 5
+            
+            for (let i = range.startCol; i <= range.endCol; i++) {
+                this.colWidths[i - 1] = parsed;
+                const col = this.colgroup.children[i];
+                if (col) col.style.width = `${parsed}px`;
+            }
+            this.updateRangeVisual();
+            this.updateFillHandlePosition();
+            this.markDirty();
+        });
+    }
+
+    handleHeaderContextMenu(type, index, e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (this.isEditing) {
+            this.exitEditMode(true);
+        }
+
+        // Hide other context menus
+        this.hideImageContextMenu();
+
+        // Determine selection range
+        // If the right-clicked header is already in the selected range, keep the selection.
+        // Otherwise, select only this row/column.
+        let isAlreadySelected = false;
+        if (this.selectionRange) {
+            if (type === 'row') {
+                isAlreadySelected = this.selectionRange.startRow <= index &&
+                                    index <= this.selectionRange.endRow &&
+                                    this.selectionRange.startCol === 1 &&
+                                    this.selectionRange.endCol === this.cols;
+            } else if (type === 'col') {
+                isAlreadySelected = this.selectionRange.startCol <= index &&
+                                    index <= this.selectionRange.endCol &&
+                                    this.selectionRange.startRow === 1 &&
+                                    this.selectionRange.endRow === this.rows;
+            }
+        }
+
+        if (!isAlreadySelected) {
+            this.selectHeaderRange(type, index, index);
+        }
+
+        this.showHeaderContextMenu(type, e);
+    }
+
+    showHeaderContextMenu(type, e) {
+        if (!this.headerContextMenu) return;
+        this.headerContextMenu.dataset.type = type;
+
+        const range = this.getEffectiveRange();
+        let count = 1;
+        if (range) {
+            if (type === 'row') {
+                count = range.endRow - range.startRow + 1;
+            } else if (type === 'col') {
+                count = range.endCol - range.startCol + 1;
+            }
+        }
+
+        const insertBtn = this.headerContextMenu.querySelector('[data-action="insert"]');
+        const deleteBtn = this.headerContextMenu.querySelector('[data-action="delete"]');
+        const resizeBtn = this.headerContextMenu.querySelector('[data-action="resize"]');
+
+        if (type === 'row') {
+            insertBtn.textContent = `행 삽입 (${count}개)`;
+            deleteBtn.textContent = `행 삭제 (${count}개)`;
+            if (resizeBtn) resizeBtn.textContent = `행 높이 설정...`;
+        } else if (type === 'col') {
+            insertBtn.textContent = `열 삽입 (${count}개)`;
+            deleteBtn.textContent = `열 삭제 (${count}개)`;
+            if (resizeBtn) resizeBtn.textContent = `열 너비 설정...`;
+        }
+
+        this.headerContextMenu.style.display = 'block';
+        const pad = 8;
+        const x = Math.min(window.innerWidth - this.headerContextMenu.offsetWidth - pad, e.clientX);
+        const y = Math.min(window.innerHeight - this.headerContextMenu.offsetHeight - pad, e.clientY);
+        this.headerContextMenu.style.left = `${Math.max(pad, x)}px`;
+        this.headerContextMenu.style.top = `${Math.max(pad, y)}px`;
+    }
+
+    hideHeaderContextMenu() {
+        if (!this.headerContextMenu) return;
+        this.headerContextMenu.style.display = 'none';
+        this.hideColorPalettePopover();
     }
 
     normalizeImageZ() {
@@ -1324,6 +1588,31 @@ class VibrantSheets {
         }
     }
 
+    initRibbonTabs() {
+        const tabs = document.querySelectorAll('.ribbon .tab');
+        const panes = document.querySelectorAll('.ribbon-content .tab-pane');
+
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const targetTab = tab.getAttribute('data-tab');
+                if (!targetTab) return;
+
+                // Toggle tabs
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                // Toggle panes
+                panes.forEach(pane => {
+                    if (pane.id === `pane-${targetTab}`) {
+                        pane.classList.add('active');
+                    } else {
+                        pane.classList.remove('active');
+                    }
+                });
+            });
+        });
+    }
+
     // --- Event Listeners -----------------------------------------------------------------------
     setupEventListeners() {
         const fillSkip = document.getElementById('fill-skip-blanks');
@@ -1339,6 +1628,9 @@ class VibrantSheets {
         }
         this.bindCustomListModal();
         this.bindPrintSettingsModal();
+        window.addEventListener('beforeprint', () => this.handleBeforePrint());
+        window.addEventListener('afterprint', () => this.handleAfterPrint());
+        this.initRibbonTabs();
         document.addEventListener('keydown', (e) => {
             if (!this.isFilling) return;
             if (e.altKey) {
@@ -1372,8 +1664,19 @@ class VibrantSheets {
         });
 
         // Color pickers
-        document.getElementById('text-color').addEventListener('input', (e) => this.applyStyle('color', e.target.value));
-        document.getElementById('bg-color').addEventListener('input', (e) => this.applyStyle('backgroundColor', e.target.value));
+        document.getElementById('text-color').addEventListener('input', (e) => {
+            const val = e.target.value;
+            const swatch = document.getElementById('swatch-text-color');
+            if (swatch) swatch.style.backgroundColor = val;
+            this.applyStyle('color', val);
+        });
+        document.getElementById('bg-color').addEventListener('input', (e) => {
+            const val = e.target.value;
+            const swatch = document.getElementById('swatch-bg-color');
+            if (swatch) swatch.style.backgroundColor = val;
+            this.applyStyle('backgroundColor', val);
+        });
+        this.bindColorPalettePopover();
 
         // Alignment
         document.getElementById('btn-align-left').addEventListener('click', () => this.applyStyle('textAlign', 'left'));
@@ -1399,7 +1702,7 @@ class VibrantSheets {
                     e.stopPropagation();
                     const val = opt.getAttribute('data-value');
                     this.currentBorderStyle = val;
-                    
+
                     // Update trigger UI preview
                     let previewHtml = '';
                     if (val === 'none') {
@@ -1407,14 +1710,14 @@ class VibrantSheets {
                     } else {
                         previewHtml = opt.querySelector('svg').outerHTML;
                     }
-                    
+
                     const preview = bsTrigger.querySelector('.style-preview');
                     if (preview) preview.innerHTML = previewHtml;
-                    
+
                     // Mark selection visually
                     bsOptions.querySelectorAll('.style-option').forEach(o => o.classList.remove('selected'));
                     opt.classList.add('selected');
-                    
+
                     bsOptions.classList.remove('show');
                 });
             });
@@ -1515,6 +1818,7 @@ class VibrantSheets {
             });
         }
         this.bindImageContextMenu();
+        this.bindHeaderContextMenu();
 
         // Infinite Scroll logic to minimize browser DOM burden
         this.container.addEventListener('scroll', () => {
@@ -1594,10 +1898,10 @@ class VibrantSheets {
             this.updatePageBreakPreview();
         });
         this.container.addEventListener('scroll', () => {
-             this.updateSelectionOverlay();
-             this.updateRangeVisual();
-             this.updateFillHandlePosition();
-             this.updatePageBreakPreview();
+            this.updateSelectionOverlay();
+            this.updateRangeVisual();
+            this.updateFillHandlePosition();
+            this.updatePageBreakPreview();
         }, { passive: true });
         // Global keyboard shortcuts (clipboard, delete)
         document.addEventListener('keydown', (e) => {
@@ -2004,7 +2308,7 @@ class VibrantSheets {
         // Always make focused cell editable to support seamless IME start
         if (!this.isEditing) {
             cell.contentEditable = true;
-            
+
             // CRITICAL for IME: Select all content so first keystroke replaces it naturally
             // This prevents the IME first-character loss bug during manual clearing.
             const range = document.createRange();
@@ -2017,16 +2321,16 @@ class VibrantSheets {
 
     scrollToVisible(cell) {
         if (!cell) return;
-        
+
         const containerRect = this.container.getBoundingClientRect();
         const cellRect = cell.getBoundingClientRect();
-        
+
         // Sticky boundary offsets (Matches CSS heights/widths)
         const headerHeight = this.baseRowHeight; // Standard row height for col headers
         const rowHeaderWidth = 40; // Fixed width for row headers
-        
+
         const buffer = 5; // Extra padding for comfort
-        
+
         // Vertical check (Hidden by sticky header or below container)
         if (cellRect.top < containerRect.top + headerHeight) {
             // Scroll UP to show the cell beneath the header
@@ -2035,7 +2339,7 @@ class VibrantSheets {
             // Scroll DOWN
             this.container.scrollTop += (cellRect.bottom - containerRect.bottom + buffer);
         }
-        
+
         // Horizontal check (Hidden by sticky row header or right of container)
         if (cellRect.left < containerRect.left + rowHeaderWidth) {
             // Scroll LEFT
@@ -2071,6 +2375,14 @@ class VibrantSheets {
             const el = document.querySelector(`[data-id="${id}"]`);
             if (el) {
                 el.style[prop] = value;
+                if (prop === 'textAlign') {
+                    const span = el.querySelector('.cell-text');
+                    if (span) {
+                        if (value === 'center') span.style.justifyContent = 'center';
+                        else if (value === 'right') span.style.justifyContent = 'flex-end';
+                        else span.style.justifyContent = 'flex-start';
+                    }
+                }
             }
             const parsed = this.parseCellId(id);
             if (parsed) rowsToRefresh.add(parsed.row);
@@ -2147,8 +2459,15 @@ class VibrantSheets {
         setBtnActive('btn-strike', style.textDecoration === 'line-through');
 
         // Color pickers
-        document.getElementById('text-color').value = style.color || '#ffffff';
-        document.getElementById('bg-color').value = style.backgroundColor || '#1e1e1e';
+        const textColorVal = style.color || '#ffffff';
+        const bgColorVal = style.backgroundColor || '#1e1e1e';
+        document.getElementById('text-color').value = textColorVal;
+        document.getElementById('bg-color').value = bgColorVal;
+
+        const textSwatch = document.getElementById('swatch-text-color');
+        if (textSwatch) textSwatch.style.backgroundColor = textColorVal;
+        const bgSwatch = document.getElementById('swatch-bg-color');
+        if (bgSwatch) bgSwatch.style.backgroundColor = bgColorVal;
 
         // Alignment
         setBtnActive('btn-align-left', style.textAlign === 'left');
@@ -2184,7 +2503,7 @@ class VibrantSheets {
         const id = cell.dataset.id;
         const parsed = this.parseCellId(id);
         if (!parsed) return;
-        
+
         const colNum = parsed.colNum;
         const rowNum = parsed.row;
 
@@ -2206,7 +2525,7 @@ class VibrantSheets {
             });
             return best;
         };
-        
+
         const merge = cell.classList.contains('merge-anchor') ? this.getMergedRangeAt(colNum, rowNum) : null;
         const range = merge ? merge : { startCol: colNum, endCol: colNum, startRow: rowNum, endRow: rowNum };
 
@@ -2271,7 +2590,7 @@ class VibrantSheets {
         );
 
         const toCss = (b) => b ? `${b.width || 1}px ${b.style || 'solid'} ${b.color || '#000000'}` : null;
-        
+
         const applyOrRemove = (side, val) => {
             if (val) {
                 cell.style.setProperty(`border-${side}`, val, 'important');
@@ -2356,7 +2675,7 @@ class VibrantSheets {
             // We just need to make sure it's the ONLY thing in the cell.
             // However, with IME, innerText might contain the composing character.
         }
-        
+
         const cellId = cell.dataset.id;
         this.setRawValue(cellId, cell.innerText);
         this.formulaInput.value = this.getRawValue(cellId);
@@ -2476,6 +2795,10 @@ class VibrantSheets {
         if (this.isResizingCol || this.isResizingRow) return;
         if (this.isNearResizeEdge(e.currentTarget, e, type)) return;
 
+        this.hideHeaderContextMenu();
+
+        if (e.button !== 0) return;
+
         e.preventDefault();
 
         if (this.isEditing) {
@@ -2531,6 +2854,7 @@ class VibrantSheets {
         // Don't start selection if clicking fill handle
         if (e.target.classList.contains('fill-handle')) return;
         if (this.activeImageId) this.clearImageSelection();
+        this.hideHeaderContextMenu();
         if (cell.classList.contains('cell-overflow')) {
             const rect = cell.getBoundingClientRect();
             const outside = e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom;
@@ -2586,7 +2910,7 @@ class VibrantSheets {
         this.isSelecting = true;
         this.setSelectionRange(colNum, row, colNum, row);
         this.updateRangeVisual();
-        
+
         // Focus cell but don't edit yet
         cell.focus();
     }
@@ -2704,10 +3028,10 @@ class VibrantSheets {
     toggleMergeSelection() {
         const range = this.getEffectiveRange();
         if (!range) return;
-        
+
         const expanded = this.expandRangeToIncludeMerges(range);
         const isAlreadyMerged = this.isEntirelyMerged(expanded);
-        
+
         if (isAlreadyMerged) {
             this.unmergeSelection();
         } else {
@@ -2717,10 +3041,10 @@ class VibrantSheets {
 
     isEntirelyMerged(range) {
         const existing = this.getNormalizedMergedRanges();
-        return existing.some(m => 
-            m.startCol === range.startCol && 
-            m.startRow === range.startRow && 
-            m.endCol === range.endCol && 
+        return existing.some(m =>
+            m.startCol === range.startCol &&
+            m.startRow === range.startRow &&
+            m.endCol === range.endCol &&
             m.endRow === range.endRow
         );
     }
@@ -2990,9 +3314,9 @@ class VibrantSheets {
     }
 
     // Simplified Overlay methods (Already handled in init)
-    createRangeOverlay() {}
-    createFillHandle() {}
-    createSelectionOverlay() {}
+    createRangeOverlay() { }
+    createFillHandle() { }
+    createSelectionOverlay() { }
 
     updateFillHandlePosition() {
         const range = this.getEffectiveRange();
@@ -3030,10 +3354,10 @@ class VibrantSheets {
 
     handleFillMove(e) {
         if (!this.isFilling) return;
-        
+
         const target = document.elementFromPoint(e.clientX, e.clientY);
         const cell = target ? target.closest('.cell') : null;
-        
+
         if (cell && !cell.classList.contains('header') && cell.dataset.id) {
             this.lastFillTargetCell = cell;
             // Show overlay from fill range start to target
@@ -3489,9 +3813,9 @@ class VibrantSheets {
         const modal = document.getElementById('print-settings-modal');
         const btnClose = document.getElementById('print-close');
         const btnCancel = document.getElementById('print-cancel');
-        const btnApply = document.getElementById('print-apply');
         const btnPrint = document.getElementById('print-run');
-        if (!modal || !btnClose || !btnCancel || !btnApply || !btnPrint) return;
+        if (!modal || !btnClose || !btnCancel || !btnPrint) return;
+        const btnApply = document.getElementById('print-apply');
 
         const close = (restore = false) => {
             if (restore && this.printSettingsSnapshot) {
@@ -3507,18 +3831,14 @@ class VibrantSheets {
         btnClose.addEventListener('click', () => close(true));
         btnCancel.addEventListener('click', () => close(true));
 
-        btnApply.addEventListener('click', () => {
-            this.applyPrintSettingsFromUI();
-            this.printSettingsSnapshot = null;
-        });
+        if (btnApply) {
+            btnApply.addEventListener('click', () => {
+                this.applyPrintSettingsFromUI();
+                this.printSettingsSnapshot = null;
+            });
+        }
         btnPrint.addEventListener('click', () => {
             this.applyPrintSettingsFromUI();
-            const settings = this.getPrintSettings();
-            if (!settings.printArea) {
-                alert('인쇄영역이 설정되지 않았습니다. 리본의 Print Area 버튼으로 인쇄영역을 먼저 설정해 주세요.');
-                this.updateStatusBadge('Error: Print area is required');
-                return;
-            }
             close(false);
             window.print();
         });
@@ -3526,6 +3846,26 @@ class VibrantSheets {
         if (!this.printModalLiveBound) {
             modal.addEventListener('input', () => this.applyPrintSettingsFromUI());
             modal.addEventListener('change', () => this.applyPrintSettingsFromUI());
+            
+            const btnPrev = document.getElementById('btn-prev-preview-page');
+            const btnNext = document.getElementById('btn-next-preview-page');
+            if (btnPrev && btnNext) {
+                btnPrev.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    if (this.currentPrintPreviewPage > 1) {
+                        this.currentPrintPreviewPage--;
+                        this.renderPrintPreview();
+                    }
+                });
+                btnNext.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    if (this.currentPrintPreviewPage < this.lastPrintPageCount) {
+                        this.currentPrintPreviewPage++;
+                        this.renderPrintPreview();
+                    }
+                });
+            }
+
             this.printModalLiveBound = true;
         }
     }
@@ -3533,6 +3873,7 @@ class VibrantSheets {
     openPrintSettingsModal() {
         const modal = document.getElementById('print-settings-modal');
         if (!modal) return;
+        this.currentPrintPreviewPage = 1;
         const settings = this.getPrintSettings();
         this.printSettingsSnapshot = JSON.parse(JSON.stringify(settings));
         this.updatePrintOrientationIndicator();
@@ -3565,11 +3906,24 @@ class VibrantSheets {
         if (scale) scale.value = settings.scale;
         const fitW = document.getElementById('print-fit-width');
         const fitH = document.getElementById('print-fit-height');
-        if (fitW) fitW.value = settings.fitTo.widthPages;
-        if (fitH) fitH.value = settings.fitTo.heightPages;
+        if (fitW) fitW.value = settings.fitTo.widthPages >= 999 ? '' : settings.fitTo.widthPages;
+        if (fitH) fitH.value = settings.fitTo.heightPages >= 999 ? '' : settings.fitTo.heightPages;
 
         const hfEnabled = document.getElementById('print-hf-enabled');
-        if (hfEnabled) hfEnabled.checked = settings.headerFooter.enabled;
+        const hfContainer = document.getElementById('hf-container');
+        if (hfEnabled) {
+            hfEnabled.checked = settings.headerFooter.enabled;
+            if (hfContainer) hfContainer.style.opacity = settings.headerFooter.enabled ? '1' : '0.4';
+            if (hfContainer) hfContainer.style.pointerEvents = settings.headerFooter.enabled ? 'auto' : 'none';
+        }
+        
+        const scaleGroup = document.getElementById('print-scale');
+        const fitWGroup = document.getElementById('print-fit-width');
+        const fitHGroup = document.getElementById('print-fit-height');
+        if (scaleGroup) scaleGroup.disabled = settings.fitTo.enabled;
+        if (fitWGroup) fitWGroup.disabled = !settings.fitTo.enabled;
+        if (fitHGroup) fitHGroup.disabled = !settings.fitTo.enabled;
+
         const show = settings.headerFooter.show || {};
         const setChecked = (id, fallback = true) => {
             const el = document.getElementById(id);
@@ -3617,6 +3971,13 @@ class VibrantSheets {
         settings.orientation = getRadio('print-orientation', settings.orientation);
         const scaleMode = getRadio('print-scale-mode', settings.fitTo.enabled ? 'fit' : 'scale');
         settings.fitTo.enabled = scaleMode === 'fit';
+        
+        const scaleGroup = document.getElementById('print-scale');
+        const fitWGroup = document.getElementById('print-fit-width');
+        const fitHGroup = document.getElementById('print-fit-height');
+        if (scaleGroup) scaleGroup.disabled = settings.fitTo.enabled;
+        if (fitWGroup) fitWGroup.disabled = !settings.fitTo.enabled;
+        if (fitHGroup) fitHGroup.disabled = !settings.fitTo.enabled;
 
         const paper = document.getElementById('print-paper');
         if (paper) settings.paper = paper.value;
@@ -3638,11 +3999,25 @@ class VibrantSheets {
         }
         const fitW = document.getElementById('print-fit-width');
         const fitH = document.getElementById('print-fit-height');
-        if (fitW) settings.fitTo.widthPages = Math.max(1, Math.min(99, Number(fitW.value) || settings.fitTo.widthPages));
-        if (fitH) settings.fitTo.heightPages = Math.max(1, Math.min(99, Number(fitH.value) || settings.fitTo.heightPages));
+        if (fitW || fitH) {
+            let wVal = fitW && fitW.value.trim() !== '' ? Number(fitW.value) : 9999;
+            let hVal = fitH && fitH.value.trim() !== '' ? Number(fitH.value) : 9999;
+            if (wVal === 9999 && hVal === 9999 && settings.fitTo.enabled) {
+                wVal = 1;
+                hVal = 1;
+            }
+            settings.fitTo.widthPages = Math.max(1, wVal);
+            settings.fitTo.heightPages = Math.max(1, hVal);
+        }
 
         const hfEnabled = document.getElementById('print-hf-enabled');
         settings.headerFooter.enabled = hfEnabled ? hfEnabled.checked : settings.headerFooter.enabled;
+        const hfContainer = document.getElementById('hf-container');
+        if (hfContainer) {
+            hfContainer.style.opacity = settings.headerFooter.enabled ? '1' : '0.4';
+            hfContainer.style.pointerEvents = settings.headerFooter.enabled ? 'auto' : 'none';
+        }
+        
         const setText = (id, fallback) => {
             const el = document.getElementById(id);
             return el ? String(el.value || '') : fallback;
@@ -3688,20 +4063,18 @@ class VibrantSheets {
         const btnPrint = document.getElementById('print-run');
         if (!btnPrint) return;
         const hasPrintArea = !!this.getPrintSettings().printArea;
-        btnPrint.disabled = !hasPrintArea;
+        // Logic change: Allow print even without specific area (defaults to used range/current sheet)
+        btnPrint.disabled = false;
         btnPrint.title = hasPrintArea
-            ? 'Print'
-            : 'Set Print Area first';
+            ? `Print (Set: ${this.formatRangeRef(this.getPrintSettings().printArea)})`
+            : 'Print (defaults to used range)';
     }
 
     updatePrintControlsState() {
-        const hasPrintArea = !!this.getPrintSettings().printArea;
         const settingsBtn = document.getElementById('btn-print-settings');
         if (settingsBtn) {
-            settingsBtn.disabled = !hasPrintArea;
-            settingsBtn.title = hasPrintArea
-                ? 'Print Settings'
-                : 'Set Print Area first';
+            settingsBtn.disabled = false;
+            settingsBtn.title = 'Print Settings';
         }
         this.updatePrintRunButtonState();
     }
@@ -3749,9 +4122,7 @@ class VibrantSheets {
         container.innerHTML = '';
     }
 
-    buildPrintPages() {
-        const container = this.ensurePrintPagesContainer();
-        container.innerHTML = '';
+    buildPagesToContainer(container, isPreview = false) {
         if (!this.table) return;
 
         const range = this.getPrintRange();
@@ -3770,11 +4141,90 @@ class VibrantSheets {
         const offsetsX = [0, ...pagination.breaksX];
         const offsetsY = [0, ...pagination.breaksY];
 
+        this.lastPrintPageCount = totalPages;
+        if (this.currentPrintPreviewPage > totalPages) {
+            this.currentPrintPreviewPage = totalPages;
+        }
+        if (this.currentPrintPreviewPage < 1) {
+            this.currentPrintPreviewPage = 1;
+        }
+
+        // Update navigation controls
+        const txtPageIndex = document.getElementById('txt-preview-page-index');
+        const btnPrev = document.getElementById('btn-prev-preview-page');
+        const btnNext = document.getElementById('btn-next-preview-page');
+        if (txtPageIndex) {
+            txtPageIndex.textContent = `Page ${this.currentPrintPreviewPage} of ${totalPages}`;
+        }
+        if (btnPrev) {
+            btnPrev.disabled = this.currentPrintPreviewPage <= 1;
+        }
+        if (btnNext) {
+            btnNext.disabled = this.currentPrintPreviewPage >= totalPages;
+        }
+
+        let sourceTable = this.table;
+        if (isPreview) {
+            sourceTable = this.table.cloneNode(true);
+            this.applyPrintVisibility(true, sourceTable);
+        }
+
+        let scaleToPreview = 1;
+        if (isPreview) {
+            const paperWPixels = paper.w * pxPerMm;
+            const paperHPixels = paper.h * pxPerMm;
+            const paneW = container.clientWidth || 400;
+            const paneH = container.clientHeight || 600;
+            // Scale dynamically so paper fits in the preview pane
+            scaleToPreview = Math.min((paneW - 40) / paperWPixels, (paneH - 40) / paperHPixels);
+            if (scaleToPreview > 1) scaleToPreview = 1;
+            
+            // Flex container to hold all preview pages sequentially
+            container.style.display = 'flex';
+            container.style.flexDirection = 'column';
+            container.style.alignItems = 'center';
+            container.style.overflowY = 'auto'; // allow scrolling through pages
+            container.style.gap = '20px';
+            container.style.padding = '20px 0';
+        }
+
         let pageNo = 1;
         offsetsY.forEach((offsetY) => {
             offsetsX.forEach((offsetX) => {
+                if (isPreview && pageNo !== this.currentPrintPreviewPage) {
+                    pageNo++;
+                    return;
+                }
+
                 const page = document.createElement('div');
-                page.className = 'vs-print-page';
+                page.className = 'vs-print-page' + (isPreview ? ' preview-mode' : '');
+
+                if (isPreview) {
+                    const paperWPixels = paper.w * pxPerMm;
+                    const paperHPixels = paper.h * pxPerMm;
+                    page.style.width = `${paperWPixels}px`;
+                    page.style.height = `${paperHPixels}px`;
+                    page.style.transform = `scale(${scaleToPreview})`;
+                    page.style.transformOrigin = 'top left';
+                    page.style.backgroundColor = 'white';
+                    page.style.position = 'relative'; 
+                    page.style.boxSizing = 'border-box';
+                    page.style.boxShadow = '0 0 10px rgba(0,0,0,0.5)';
+                    page.style.flexShrink = '0';
+                    page.style.display = 'flex';
+                    page.style.flexDirection = 'column';
+                    page.style.overflow = 'hidden';
+
+                    // Apply margins as padding to visually represent them in the preview
+                    const marginTopPx = (settings.margins?.top || 0) * pxPerMm;
+                    const marginBottomPx = (settings.margins?.bottom || 0) * pxPerMm;
+                    const marginLeftPx = (settings.margins?.left || 0) * pxPerMm;
+                    const marginRightPx = (settings.margins?.right || 0) * pxPerMm;
+                    page.style.paddingTop = `${marginTopPx}px`;
+                    page.style.paddingBottom = `${marginBottomPx}px`;
+                    page.style.paddingLeft = `${marginLeftPx}px`;
+                    page.style.paddingRight = `${marginRightPx}px`;
+                }
 
                 if (settings.headerFooter?.enabled) {
                     const header = document.createElement('div');
@@ -3785,28 +4235,34 @@ class VibrantSheets {
 
                 const viewport = document.createElement('div');
                 viewport.className = 'vs-print-page-viewport';
-                viewport.style.width = `${Math.ceil(printableW)}px`;
-                viewport.style.height = `${Math.ceil(printableH)}px`;
+                viewport.style.width = isPreview ? '100%' : `${Math.ceil(printableW)}px`;
+                viewport.style.height = isPreview ? '100%' : `${Math.ceil(printableH)}px`;
+                if (isPreview) {
+                    viewport.style.flex = '1';
+                }
 
                 const scaleWrap = document.createElement('div');
                 scaleWrap.className = 'vs-print-page-scale';
+                scaleWrap.style.width = `${sourceTable.offsetWidth}px`;
+                scaleWrap.style.height = `${sourceTable.offsetHeight}px`;
+                scaleWrap.style.position = 'relative';
                 scaleWrap.style.transform = `scale(${scaleFactor})`;
                 scaleWrap.style.transformOrigin = 'top left';
 
-                const clone = this.table.cloneNode(true);
+                const clone = sourceTable.cloneNode(true);
                 clone.classList.add('vs-print-page-clone');
                 clone.style.zoom = '1';
                 clone.style.transform = 'none';
-                clone.style.width = '0';
+                clone.style.width = `${sourceTable.offsetWidth}px`;
+                clone.style.height = `${sourceTable.offsetHeight}px`;
                 clone.style.position = 'absolute';
                 clone.style.left = `${-offsetX}px`;
                 clone.style.top = `${-offsetY}px`;
 
                 scaleWrap.appendChild(clone);
-                const imageLayer = this.buildPrintImageLayer(offsetX, offsetY);
-                if (imageLayer) {
-                    scaleWrap.appendChild(imageLayer);
-                }
+                const imageLayer = this.buildPrintImageLayer(range, settings, offsetX, offsetY);
+                if (imageLayer) scaleWrap.appendChild(imageLayer);
+                
                 viewport.appendChild(scaleWrap);
                 page.appendChild(viewport);
 
@@ -3817,24 +4273,63 @@ class VibrantSheets {
                     page.appendChild(footer);
                 }
 
-                container.appendChild(page);
+                if (isPreview) {
+                    // Wrapper avoids flexbox spacing bugs with CSS transfrom scale
+                    const wrapper = document.createElement('div');
+                    const paperWPixels = paper.w * pxPerMm;
+                    const paperHPixels = paper.h * pxPerMm;
+                    wrapper.style.width = `${paperWPixels * scaleToPreview}px`;
+                    wrapper.style.height = `${paperHPixels * scaleToPreview}px`;
+                    wrapper.style.position = 'relative';
+                    wrapper.appendChild(page);
+                    container.appendChild(wrapper);
+                } else {
+                    container.appendChild(page);
+                }
+                
                 pageNo++;
             });
         });
     }
 
-    buildPrintImageLayer(offsetX, offsetY) {
+    buildPrintPages() {
+        const container = this.ensurePrintPagesContainer();
+        container.innerHTML = '';
+        this.buildPagesToContainer(container, false);
+    }
+
+    buildPrintImageLayer(range, settings, offsetX, offsetY) {
         const images = this.activeSheet.images || [];
         if (!images.length) return null;
+
+        // Calculate the pixel offset from (0,0) of the spreadsheet 
+        // down to where the print range actually starts.
+        const rangeOffset = this.getRangePixelOffset(range);
+        
+        // If row/column headers are enabled, they occupy space at the 
+        // top/left of the table. We need to add that back to images.
+        const rowHeaderW = settings.rowColumnHeaders ? (this.rowHeaderWidth || 40) : 0;
+        const colHeaderH = settings.rowColumnHeaders ? (this.rowHeights[0] || this.baseRowHeight || 22) : 0;
+
         const layer = document.createElement('div');
         layer.className = 'vs-print-image-layer';
         layer.style.left = `${-offsetX}px`;
         layer.style.top = `${-offsetY}px`;
+
         images.forEach((img) => {
+            // Check if image is within the range (approximate check by coordinates)
+            // If the image is entirely outside the range, we could skip it, 
+            // but the clipping layer usually handles it fine.
             const imageEl = document.createElement('img');
             imageEl.src = img.src;
-            imageEl.style.left = `${img.x}px`;
-            imageEl.style.top = `${img.y}px`;
+            
+            // Final position relative to the table element's top-left:
+            // raw img pos - range start pos + header size
+            const finalX = img.x - rangeOffset.offsetX + rowHeaderW;
+            const finalY = img.y - rangeOffset.offsetY + colHeaderH;
+
+            imageEl.style.left = `${finalX}px`;
+            imageEl.style.top = `${finalY}px`;
             imageEl.style.width = `${img.w}px`;
             imageEl.style.height = `${img.h}px`;
             layer.appendChild(imageEl);
@@ -3942,15 +4437,15 @@ class VibrantSheets {
         return Math.max(0.1, Math.min(4, scaleFactor));
     }
 
-    applyPrintVisibility(enable) {
-        if (!this.table) return;
+    applyPrintVisibility(enable, tableNode = this.table) {
+        if (!tableNode) return;
         const range = this.getPrintRange();
         const hideClass = 'print-hide';
         const emptyClass = 'print-empty';
-        this.togglePrintRowHeaderColumn(enable);
-        this.togglePrintColumnVisibility(enable, range);
-        this.togglePrintRowVisibility(enable, range);
-        const cells = this.table.querySelectorAll('.cell');
+        this.togglePrintRowHeaderColumn(enable, tableNode);
+        this.togglePrintColumnVisibility(enable, range, tableNode);
+        this.togglePrintRowVisibility(enable, range, tableNode);
+        const cells = tableNode.querySelectorAll('.cell');
         cells.forEach(cell => {
             const isHeader = cell.classList.contains('header');
             if (isHeader) {
@@ -3988,9 +4483,10 @@ class VibrantSheets {
         this.applyPrintHeaderFooter(enable);
     }
 
-    togglePrintRowHeaderColumn(enable) {
-        if (!this.colgroup || !this.colgroup.children || this.colgroup.children.length === 0) return;
-        const rowHeaderCol = this.colgroup.children[0];
+    togglePrintRowHeaderColumn(enable, tableNode = this.table) {
+        const colgroup = tableNode.querySelector('colgroup');
+        if (!colgroup || !colgroup.children || colgroup.children.length === 0) return;
+        const rowHeaderCol = colgroup.children[0];
         if (!rowHeaderCol) return;
 
         if (enable) {
@@ -4015,9 +4511,10 @@ class VibrantSheets {
         }
     }
 
-    togglePrintColumnVisibility(enable, range) {
-        if (!this.colgroup || !this.colgroup.children) return;
-        const cols = this.colgroup.children;
+    togglePrintColumnVisibility(enable, range, tableNode = this.table) {
+        const colgroup = tableNode.querySelector('colgroup');
+        if (!colgroup || !colgroup.children) return;
+        const cols = colgroup.children;
         for (let i = 1; i < cols.length; i++) {
             const col = cols[i];
             const colNum = i;
@@ -4034,9 +4531,10 @@ class VibrantSheets {
         }
     }
 
-    togglePrintRowVisibility(enable, range) {
-        if (!this.tbody) return;
-        const rows = this.tbody.querySelectorAll('tr');
+    togglePrintRowVisibility(enable, range, tableNode = this.table) {
+        const tbody = tableNode.querySelector('tbody');
+        if (!tbody) return;
+        const rows = tbody.querySelectorAll('tr');
         rows.forEach((tr) => {
             const rowNum = Number(tr.dataset.rowIndex || '0');
             if (!rowNum) return;
@@ -4150,152 +4648,8 @@ class VibrantSheets {
     renderPrintPreview() {
         const preview = document.querySelector('.print-preview-sheet');
         if (!preview) return;
-        const range = this.getPrintRange();
-        const settings = this.getPrintSettings();
-        const paperSizes = { A4: { w: 210, h: 297 }, Letter: { w: 216, h: 279 } };
-        const basePaper = paperSizes[settings.paper] || paperSizes.A4;
-        const paper = settings.orientation === 'landscape'
-            ? { w: basePaper.h, h: basePaper.w }
-            : basePaper;
-        const pxPerMm = this.getPxPerMm();
-        const contentWidth = this.getRangePixelSize(range).width;
-        const contentHeight = this.getRangePixelSize(range).height;
-        const printableW = Math.max(1, (paper.w - settings.margins.left - settings.margins.right) * pxPerMm);
-        const printableH = Math.max(1, (paper.h - settings.margins.top - settings.margins.bottom) * pxPerMm);
-
-        const scaleFactor = this.getPrintScaleFactor(range, settings);
-        const pagination = this.getPrintPagination(range, settings);
-        const pagesX = pagination.pagesX;
-        const pagesY = pagination.pagesY;
-        this.lastPrintPageCount = pagesX * pagesY;
-
         preview.innerHTML = '';
-        const canvas = document.createElement('div');
-        canvas.className = 'print-preview-canvas';
-        preview.appendChild(canvas);
-
-        // Mini content preview (scaled grid + text)
-        const grid = document.createElement('div');
-        grid.className = 'print-preview-grid';
-        canvas.appendChild(grid);
-        const canvasWidth = Math.max(1, grid.clientWidth || grid.getBoundingClientRect().width || 1);
-        const canvasHeight = Math.max(1, grid.clientHeight || grid.getBoundingClientRect().height || 1);
-        const totalPrintableW = printableW * pagesX;
-        const totalPrintableH = printableH * pagesY;
-        const scaleToPreview = Math.min(canvasWidth / Math.max(1, totalPrintableW), canvasHeight / Math.max(1, totalPrintableH));
-        const finalScale = scaleFactor * scaleToPreview;
-        const previewW = totalPrintableW * scaleToPreview;
-        const previewH = totalPrintableH * scaleToPreview;
-        grid.style.width = `${previewW}px`;
-        grid.style.height = `${previewH}px`;
-        const gridOffsetX = (canvasWidth - previewW) / 2;
-        const gridOffsetY = (canvasHeight - previewH) / 2;
-        grid.style.left = `${gridOffsetX}px`;
-        grid.style.top = `${gridOffsetY}px`;
-
-        let x = 0;
-        let y = 0;
-        let cellCount = 0;
-        const maxCells = 600;
-        for (let r = range.startRow; r <= range.endRow; r++) {
-            const h = (this.rowHeights[r] || this.baseRowHeight) * finalScale;
-            if (y + h > previewH) break;
-            x = 0;
-            for (let c = range.startCol; c <= range.endCol; c++) {
-                const w = (this.colWidths[c - 1] || this.baseColWidth) * finalScale;
-                if (x + w > previewW) break;
-                const id = `${this.numberToCol(c)}${r}`;
-                if (!this.isCellPrintable(id)) {
-                    x += w;
-                    continue;
-                }
-                const cell = document.createElement('div');
-                cell.className = 'preview-cell';
-                cell.style.left = `${x}px`;
-                cell.style.top = `${y}px`;
-                cell.style.width = `${Math.max(1, w)}px`;
-                cell.style.height = `${Math.max(1, h)}px`;
-                const raw = this.getRawValue(id);
-                if (raw) cell.textContent = raw;
-                const style = this.cellStyles[id];
-                if (style?.backgroundColor) cell.style.backgroundColor = style.backgroundColor;
-                if (style?.color) cell.style.color = style.color;
-                grid.appendChild(cell);
-                cellCount++;
-                if (cellCount >= maxCells) break;
-                x += w;
-            }
-            if (cellCount >= maxCells) break;
-            y += h;
-        }
-
-        // Page break lines
-        pagination.breaksX.forEach((breakX) => {
-            const line = document.createElement('div');
-            line.className = 'print-preview-break-v';
-            line.style.left = `${gridOffsetX + (breakX * finalScale)}px`;
-            line.style.top = `${gridOffsetY}px`;
-            line.style.height = `${previewH}px`;
-            canvas.appendChild(line);
-        });
-        pagination.breaksY.forEach((breakY) => {
-            const line = document.createElement('div');
-            line.className = 'print-preview-break-h';
-            line.style.top = `${gridOffsetY + (breakY * finalScale)}px`;
-            line.style.left = `${gridOffsetX}px`;
-            line.style.width = `${previewW}px`;
-            canvas.appendChild(line);
-        });
-
-        // Page labels
-        const pages = document.createElement('div');
-        pages.className = 'print-preview-pages';
-        pages.style.gridTemplateColumns = `repeat(${pagesX}, 1fr)`;
-        pages.style.gridTemplateRows = `repeat(${pagesY}, 1fr)`;
-        preview.appendChild(pages);
-        const totalPages = pagesX * pagesY;
-        for (let i = 0; i < totalPages; i++) {
-            const tile = document.createElement('div');
-            tile.className = 'print-preview-page-tile';
-            const label = document.createElement('span');
-            label.textContent = `Page ${i + 1}`;
-            if (settings.headerFooter?.enabled) {
-                const slot = settings.headerFooter.show || {};
-                const header = document.createElement('div');
-                header.className = 'print-preview-page-header';
-                const hL = document.createElement('span');
-                const hC = document.createElement('span');
-                const hR = document.createElement('span');
-                hL.className = 'left';
-                hC.className = 'center';
-                hR.className = 'right';
-                hL.textContent = slot.headerLeft === false ? '' : this.expandPrintTokens(settings.headerFooter.header.left, i + 1, totalPages);
-                hC.textContent = slot.headerCenter === false ? '' : this.expandPrintTokens(settings.headerFooter.header.center, i + 1, totalPages);
-                hR.textContent = slot.headerRight === false ? '' : this.expandPrintTokens(settings.headerFooter.header.right, i + 1, totalPages);
-                header.appendChild(hL);
-                header.appendChild(hC);
-                header.appendChild(hR);
-
-                const footer = document.createElement('div');
-                footer.className = 'print-preview-page-footer';
-                const fL = document.createElement('span');
-                const fC = document.createElement('span');
-                const fR = document.createElement('span');
-                fL.className = 'left';
-                fC.className = 'center';
-                fR.className = 'right';
-                fL.textContent = slot.footerLeft === false ? '' : this.expandPrintTokens(settings.headerFooter.footer.left, i + 1, totalPages);
-                fC.textContent = slot.footerCenter === false ? '' : this.expandPrintTokens(settings.headerFooter.footer.center, i + 1, totalPages);
-                fR.textContent = slot.footerRight === false ? '' : this.expandPrintTokens(settings.headerFooter.footer.right, i + 1, totalPages);
-                footer.appendChild(fL);
-                footer.appendChild(fC);
-                footer.appendChild(fR);
-                tile.appendChild(header);
-                tile.appendChild(footer);
-            }
-            tile.appendChild(label);
-            pages.appendChild(tile);
-        }
+        this.buildPagesToContainer(preview, true);
     }
 
     getPrintPagination(range, settings = this.getPrintSettings()) {
@@ -4414,6 +4768,18 @@ class VibrantSheets {
             height += this.rowHeights[r] || this.baseRowHeight;
         }
         return { width, height };
+    }
+
+    getRangePixelOffset(range) {
+        let offsetX = 0;
+        let offsetY = 0;
+        for (let i = 1; i < range.startCol; i++) {
+            offsetX += this.colWidths[i - 1] || this.baseColWidth;
+        }
+        for (let j = 1; j < range.startRow; j++) {
+            offsetY += this.rowHeights[j] || this.baseRowHeight;
+        }
+        return { offsetX, offsetY };
     }
 
     getUsedRangeForSheet(sheet = this.activeSheet) {
@@ -4656,7 +5022,7 @@ class VibrantSheets {
 
         // Copy to system clipboard as TSV
         const text = rows.join('\n');
-        navigator.clipboard.writeText(text).catch(() => {});
+        navigator.clipboard.writeText(text).catch(() => { });
 
         // Flash visual feedback
         this.flashCopyBorder(expandedRange);
@@ -4970,7 +5336,7 @@ class VibrantSheets {
         let nextRow = rowNum;
         let moved = false;
 
-        switch(e.key) {
+        switch (e.key) {
             case 'ArrowUp':
                 if (e.shiftKey) {
                     e.preventDefault();
@@ -5116,7 +5482,7 @@ class VibrantSheets {
         cell.classList.add('editing');
         cell.innerText = this.originalValue;
         cell.focus();
-        
+
         // Move cursor to end
         const range = document.createRange();
         const sel = window.getSelection();
@@ -5141,10 +5507,10 @@ class VibrantSheets {
         this.isEditing = true;
         this.originalValue = this.getRawValue(cellId);
         this.needsOverwrite = overwrite;
-        
+
         cell.classList.add('editing');
         cell.innerText = overwrite ? '' : this.originalValue;
-        
+
         // CRITICAL: Setting innerText = '' often clears the caret in some browsers.
         // We must re-establish a selection within the cell so typing works.
         const range = document.createRange();
@@ -5153,7 +5519,7 @@ class VibrantSheets {
         range.collapse(false); // End of empty is same as start
         sel.removeAllRanges();
         sel.addRange(range);
-        
+
         this.markDirty();
     }
 
@@ -5163,7 +5529,7 @@ class VibrantSheets {
 
     exitEditMode(commit = true) {
         if (!this.isEditing || !this.selectedCell) return;
-        
+
         const cell = this.selectedCell;
         const cellId = cell.dataset.id;
         if (!commit) {
@@ -5174,7 +5540,7 @@ class VibrantSheets {
             this.markDirty();
             this.updateItemCount();
         }
-        
+
         cell.contentEditable = false;
         cell.classList.remove('editing');
         this.isEditing = false;
@@ -5189,7 +5555,7 @@ class VibrantSheets {
     moveSelection(deltaCol, deltaRow) {
         const activeCell = this.selectedCell;
         if (!activeCell) return;
-        
+
         const { colNum, row } = this.parseCellId(activeCell.dataset.id);
         const desiredCol = colNum + deltaCol;
         const desiredRow = row + deltaRow;
@@ -5209,7 +5575,7 @@ class VibrantSheets {
 
         const nextCol = Math.max(1, Math.min(this.cols, desiredCol));
         const nextRow = Math.max(1, Math.min(this.rows, desiredRow));
-        
+
         const nextCell = this.getSelectableCell(nextCol, nextRow);
         if (nextCell) {
             nextCell.focus();
@@ -5418,7 +5784,7 @@ class VibrantSheets {
         }
 
         const delimiter = this.detectDelimiter(text);
-        
+
         // Advanced Parsing (handles multi-line cells)
         let row = 0;
         let col = 0;
@@ -5463,7 +5829,7 @@ class VibrantSheets {
                 }
             }
         }
-        
+
         if (currentField !== '' || col > 0) {
             this.setInternalData(row + 1, col + 1, currentField);
         }
@@ -5487,19 +5853,19 @@ class VibrantSheets {
     refreshGridUI() {
         if (this.container) {
             this.container.innerHTML = '';
-            
+
             // Re-create overlays that were inside the container
             this.selectionOverlay = this.createOverlay('selection-overlay');
             this.rangeOverlay = this.createOverlay('range-overlay');
             this.fillHandle = this.createOverlay('fill-handle');
             this.resizeGuide = this.createOverlay('resize-guide');
             this.pageBreakOverlay = this.createOverlay('page-break-overlay');
-            
+
             this.renderGrid();
-            
+
             // Re-attach fill handle listener (since we just created a new one)
             this.fillHandle.addEventListener('mousedown', (e) => this.handleFillStart(e));
-            
+
             // Refresh overlays
             this.updateSelectionOverlay();
             this.updateRangeVisual();
@@ -5550,7 +5916,7 @@ class VibrantSheets {
                 const vshtData = this.generateVSHTData();
                 await writable.write(JSON.stringify(vshtData, null, 2));
             }
-            
+
             await writable.close();
             this.markClean();
         } catch (err) {
@@ -5582,7 +5948,7 @@ class VibrantSheets {
                         }
                     ],
                 });
-                
+
                 this.fileHandle = handle;
                 await this.saveFile(); // Overwrite with new handle
 
@@ -5633,26 +5999,15 @@ class VibrantSheets {
         };
     }
 
-    getUsedRangeForSheet(sheet) {
-        return window.VSIO.getUsedRangeForSheet(this, sheet);
-        let maxRow = 0;
-        let maxCol = 0;
-        const scan = (key) => {
-            const { colNum, row } = this.parseCellId(key);
-            maxRow = Math.max(maxRow, row);
-            maxCol = Math.max(maxCol, colNum);
+    getUsedRangeForSheet(sheet = this.activeSheet) {
+        // Delegate to VSIO for the calculation but ensure we return a full range object
+        const { maxRow, maxCol } = window.VSIO.getUsedRangeForSheet(this, sheet);
+        return {
+            startCol: 1,
+            startRow: 1,
+            endCol: maxCol || 1,
+            endRow: maxRow || 1
         };
-        Object.keys(sheet.data || {}).forEach(scan);
-        Object.keys(sheet.cellFormulas || {}).forEach(scan);
-        Object.keys(sheet.cellStyles || {}).forEach(scan);
-        Object.keys(sheet.cellFormats || {}).forEach(scan);
-        (sheet.mergedRanges || []).forEach((range) => {
-            const normalized = this.normalizeMergedRangeEntry(range);
-            if (!normalized) return;
-            maxRow = Math.max(maxRow, normalized.endRow);
-            maxCol = Math.max(maxCol, normalized.endCol);
-        });
-        return { maxRow, maxCol };
     }
 
     async generateXLSXBufferExcelJS() {
@@ -5770,7 +6125,7 @@ class VibrantSheets {
             const sheetName = sheet.name || `Sheet${index + 1}`;
             XLSX.utils.book_append_sheet(wb, ws, sheetName);
         });
-        
+
         return XLSX.write(wb, { type: 'array', bookType: 'xlsx', cellStyles: true });
     }
 
@@ -6057,7 +6412,7 @@ class VibrantSheets {
         if (style.fontWeight === 'bold') s.font.bold = true;
         if (style.fontStyle === 'italic') s.font.italic = true;
         if (style.textDecoration === 'underline') s.font.underline = true;
-        
+
         if (style.color) {
             s.font.color = { rgb: style.color.replace('#', '') };
         }
@@ -6211,7 +6566,7 @@ class VibrantSheets {
         this.rows++;
         this.refreshGridUI();
         this.markDirty();
-        
+
         // Select the newly inserted row's first cell
         const nextCell = this.getCellEl(range ? range.startCol : 1, index);
         if (nextCell) {
@@ -6293,6 +6648,43 @@ class VibrantSheets {
         btnCancel.onclick = () => close();
     }
 
+    showPrompt(message, defaultValue, onConfirm) {
+        const modal = document.getElementById('prompt-modal');
+        const msg = document.getElementById('prompt-message');
+        const input = document.getElementById('prompt-input');
+        const btnOk = document.getElementById('prompt-ok');
+        const btnCancel = document.getElementById('prompt-cancel');
+        if (!modal) {
+            const val = prompt(message, defaultValue);
+            if (val !== null) onConfirm(val);
+            return;
+        }
+        msg.textContent = message;
+        input.value = defaultValue;
+        modal.style.display = 'flex';
+        input.focus();
+        input.select();
+        const close = () => {
+            modal.style.display = 'none';
+            btnOk.onclick = null;
+            btnCancel.onclick = null;
+            input.onkeydown = null;
+        };
+        btnOk.onclick = () => {
+            const val = input.value;
+            close();
+            onConfirm(val);
+        };
+        btnCancel.onclick = () => close();
+        input.onkeydown = (e) => {
+            if (e.key === 'Enter') {
+                btnOk.click();
+            } else if (e.key === 'Escape') {
+                btnCancel.click();
+            }
+        };
+    }
+
     showConfirmAsync(message) {
         return new Promise((resolve) => {
             const modal = document.getElementById('confirm-modal');
@@ -6306,8 +6698,8 @@ class VibrantSheets {
             }
 
             msg.textContent = message;
-            if (btnCancel) btnCancel.textContent = '痍⑥냼';
-            if (btnOk) btnOk.textContent = '?뺤씤';
+            if (btnCancel) btnCancel.textContent = 'Cancel';
+            if (btnOk) btnOk.textContent = 'OK';
             modal.style.display = 'flex';
             const close = (result) => {
                 modal.style.display = 'none';
